@@ -1,0 +1,2327 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MAPT2 — ROS2 Bridge v4</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=IBM+Plex+Sans+Thai:wght@300;400;500;600&display=swap');
+:root{
+  --bg:#0d1117;--surface:#161b22;--surface2:#1c2128;
+  --border:#30363d;--accent:#58a6ff;--green:#3fb950;
+  --warn:#f0883e;--danger:#f85149;--purple:#bc8cff;
+  --cyan:#39d5d5;--text:#e6edf3;--muted:#8b949e;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--text);font-family:'IBM Plex Sans Thai',sans-serif;min-height:100vh;overflow:hidden;}
+
+/* ── TOPBAR ── */
+#topbar{
+  position:fixed;top:0;left:0;right:0;z-index:100;height:52px;
+  background:rgba(13,17,23,0.97);backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;padding:0 16px;gap:10px;flex-wrap:nowrap;
+}
+.logo{font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--accent);letter-spacing:.1em;white-space:nowrap;}
+.sep{width:1px;height:24px;background:var(--border);flex-shrink:0;}
+.pill{display:flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:3px 10px;font-size:11px;color:var(--muted);white-space:nowrap;}
+.dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.blink{animation:blink 1.2s ease-in-out infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+
+.mode-badge{padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;font-family:'Space Mono',monospace;border:1px solid;}
+.mode-sim{background:rgba(88,166,255,.12);border-color:var(--accent);color:var(--accent);}
+.mode-ros{background:rgba(63,185,80,.12);border-color:var(--green);color:var(--green);}
+
+/* ── BUTTONS ── */
+.btn{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:5px 12px;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;
+  border:1px solid var(--border);background:var(--surface2);color:var(--text);
+  transition:all .15s;font-family:'IBM Plex Sans Thai',sans-serif;white-space:nowrap;
+}
+.btn:hover{border-color:var(--accent);color:var(--accent);}
+.btn.active{background:var(--accent);border-color:var(--accent);color:#0d1117;}
+.btn.g{border-color:var(--green);color:var(--green);}
+.btn.g:hover,.btn.g.active{background:var(--green);color:#0d1117;}
+.btn.r{border-color:var(--danger);color:var(--danger);}
+.btn.r:hover,.btn.r.active{background:var(--danger);color:#0d1117;}
+.btn.c{border-color:var(--cyan);color:var(--cyan);}
+.btn.c:hover{background:rgba(57,213,213,.15);}
+.btn.w{border-color:var(--warn);color:var(--warn);}
+.btn.w:hover,.btn.w.active{background:var(--warn);color:#0d1117;}
+
+/* ── SIDE PANEL ── */
+#side{
+  position:fixed;top:52px;right:0;bottom:0;width:280px;z-index:90;
+  background:rgba(13,17,23,0.99);backdrop-filter:blur(14px);
+  border-left:1px solid var(--border);
+  display:flex;flex-direction:column;overflow-y:auto;
+}
+.psec{padding:12px 14px;border-bottom:1px solid var(--border);}
+.plbl{font-family:'Space Mono',monospace;font-size:9px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase;margin-bottom:9px;}
+
+.conn-row{display:flex;gap:7px;align-items:center;margin-bottom:8px;}
+.conn-input{
+  flex:1;background:var(--surface2);border:1px solid var(--border);
+  border-radius:5px;padding:5px 9px;font-size:11px;color:var(--text);
+  font-family:'Space Mono',monospace;outline:none;
+}
+.conn-input:focus{border-color:var(--accent);}
+
+.topic-row{display:flex;align-items:center;margin-bottom:5px;gap:4px;}
+.topic-lbl{font-family:'Space Mono',monospace;color:var(--muted);font-size:10px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.topic-badge{font-family:'Space Mono',monospace;font-size:9px;font-weight:700;white-space:nowrap;padding:1px 5px;border-radius:3px;flex-shrink:0;}
+.topic-badge.sub{background:rgba(57,213,213,.15);color:var(--cyan);}
+.topic-badge.pub{background:rgba(240,136,62,.15);color:var(--warn);}
+.topic-status{width:8px;height:8px;border-radius:50%;background:var(--border);flex-shrink:0;}
+.topic-status.ok{background:var(--green);}
+.topic-status.warn{background:var(--warn);}
+.topic-status.err{background:var(--danger);}
+
+.tog{position:relative;width:32px;height:17px;flex-shrink:0;}
+.tog input{opacity:0;width:0;height:0;}
+.tog .track{position:absolute;inset:0;background:var(--surface2);border:1px solid var(--border);border-radius:9px;cursor:pointer;transition:background .2s;}
+.tog input:checked+.track{background:var(--accent);border-color:var(--accent);}
+.tog .thumb{position:absolute;width:11px;height:11px;border-radius:50%;background:#fff;top:2px;left:2px;pointer-events:none;transition:transform .2s;}
+.tog input:checked~.thumb{transform:translateX(15px);}
+.crow{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;}
+.crow label{font-size:12px;color:var(--muted);}
+.swrap{display:flex;align-items:center;gap:8px;}
+.swrap span{font-family:'Space Mono',monospace;font-size:10px;color:var(--accent);min-width:36px;text-align:right;}
+input[type=range]{flex:1;-webkit-appearance:none;appearance:none;height:3px;background:var(--border);border-radius:2px;outline:none;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;background:var(--accent);cursor:pointer;border:2px solid var(--bg);}
+
+.icard{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:9px 11px;margin-bottom:7px;}
+.kv{display:flex;justify-content:space-between;margin-bottom:4px;font-size:11px;}
+.kv:last-child{margin-bottom:0;}
+.k{color:var(--muted);}
+.v{font-family:'Space Mono',monospace;color:var(--text);}
+.v.g{color:var(--green);}.v.p{color:var(--purple);}.v.c{color:var(--cyan);}
+.v.w{color:var(--warn);}.v.r{color:var(--danger);}
+
+/* waypoints */
+.wp-item{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid rgba(48,54,61,.4);font-size:11px;}
+.wp-num{font-family:'Space Mono',monospace;font-size:10px;color:var(--accent);min-width:16px;}
+.wp-xy{font-family:'Space Mono',monospace;font-size:10px;flex:1;}
+.wp-src{font-size:9px;padding:1px 5px;border-radius:3px;}
+.wp-ros{background:rgba(63,185,80,.15);color:var(--green);}
+.wp-manual{background:rgba(88,166,255,.15);color:var(--accent);}
+.wp-del{opacity:0;color:var(--danger);cursor:pointer;transition:opacity .15s;padding:0 3px;}
+.wp-item:hover .wp-del{opacity:1;}
+.wp-act .wp-xy{color:var(--green);}
+
+/* log */
+#log{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);line-height:1.8;max-height:150px;overflow-y:auto;}
+.log-info{color:var(--accent);}.log-ok{color:var(--green);}.log-warn{color:var(--warn);}.log-err{color:var(--danger);}.log-ros{color:var(--cyan);}
+
+#progress-bar{height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-top:7px;}
+#progress-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--purple));width:0%;transition:width .3s;}
+
+/* ── MAP ── */
+#map-area{position:fixed;top:52px;left:0;right:280px;bottom:0;overflow:hidden;cursor:crosshair;background:var(--bg);}
+#map-area.grabbing{cursor:grabbing;}
+canvas{position:absolute;top:0;left:0;image-rendering:pixelated;}
+
+#coords{position:fixed;bottom:14px;left:14px;font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);background:rgba(13,17,23,.9);border:1px solid var(--border);border-radius:6px;padding:5px 10px;pointer-events:none;z-index:50;}
+#mini{position:fixed;bottom:14px;right:294px;width:130px;height:90px;border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--surface);}
+#zbtn-wrap{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:50;}
+.zbtn{width:32px;height:32px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;}
+.zbtn:hover{border-color:var(--accent);color:var(--accent);}
+
+#scan-overlay{position:absolute;top:0;left:0;pointer-events:none;}
+
+/* keyboard hint */
+#kbd-hint{position:fixed;bottom:54px;left:50%;transform:translateX(-50%);font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);background:rgba(13,17,23,.8);border:1px solid var(--border);border-radius:4px;padding:3px 10px;pointer-events:none;z-index:50;white-space:nowrap;}
+
+/* right-click menu */
+#ctx-menu{display:none;position:fixed;z-index:999;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:4px;min-width:170px;box-shadow:0 8px 24px rgba(0,0,0,.5);}
+.ctx-item{padding:7px 12px;font-size:12px;border-radius:5px;cursor:pointer;display:flex;align-items:center;gap:8px;}
+.ctx-item:hover{background:var(--surface);color:var(--accent);}
+.ctx-item.danger:hover{background:rgba(248,81,73,.12);color:var(--danger);}
+.ctx-sep{height:1px;background:var(--border);margin:3px 0;}
+
+/* toast */
+#toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 16px;font-size:12px;font-family:'Space Mono',monospace;opacity:0;transition:all .3s;z-index:999;pointer-events:none;}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+/* connection indicator glow */
+@keyframes rosGlow{0%,100%{box-shadow:0 0 0 0 rgba(63,185,80,0)}50%{box-shadow:0 0 8px 2px rgba(63,185,80,.3)}}
+.ros-glow{animation:rosGlow 2s ease-in-out infinite;}
+
+/* ── NAV DECISION ── */
+.ndpad{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-bottom:8px;}
+.ndpad .btn{justify-content:center;font-size:14px;padding:5px 2px;}
+.ndpad .btn.nav-lit{background:rgba(88,166,255,.25);border-color:var(--accent);color:var(--accent);}
+.ndpad .btn.nav-cmd{background:rgba(63,185,80,.2);border-color:var(--green);color:var(--green);box-shadow:0 0 8px rgba(63,185,80,.25);}
+.nc-sel{width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:10px;padding:4px 6px;border-radius:5px;font-family:'Space Mono',monospace;outline:none;}
+/* AI chat */
+.ai-bubble{padding:7px 10px;border-radius:8px;font-size:11px;line-height:1.6;max-width:100%;word-break:break-word;}
+.ai-user{background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.25);color:var(--text);align-self:flex-end;border-radius:8px 8px 2px 8px;}
+.ai-bot{background:rgba(188,140,255,.1);border:1px solid rgba(188,140,255,.2);color:var(--text);align-self:flex-start;border-radius:8px 8px 8px 2px;}
+.ai-bot.thinking{color:var(--muted);font-style:italic;}
+.ai-error{background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.2);color:var(--danger);}
+#ai-chat::-webkit-scrollbar{width:3px;}
+#ai-chat::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+</style>
+</head>
+<body>
+
+<!-- ══ TOP BAR ══ -->
+<div id="topbar">
+  <div class="logo">▸ MAPT2 ROS2 <span style="color:var(--green);font-size:10px">v4</span></div>
+  <div class="sep"></div>
+  <div id="mode-badge" class="mode-badge mode-sim">SIM</div>
+  <button class="btn g" id="btn-auto" onclick="toggleAuto()">▶ Auto Walk</button>
+  <button class="btn" id="btn-patrol" onclick="togglePatrol()">⟳ Patrol</button>
+  <button class="btn r" onclick="stopRobot()">■ Stop</button>
+  <button class="btn c" onclick="sendEmergencyStop()" title="E-Stop — ส่ง cmd_vel=0 ทันที">⚠ E-Stop</button>
+  <div class="sep"></div>
+  <div class="pill"><div class="dot blink" id="sdot" style="background:#8b949e"></div><span id="stxt">ไม่ได้เชื่อมต่อ</span></div>
+  <div class="pill" style="margin-left:auto;font-family:'Space Mono',monospace;font-size:10px;" id="hz-pill">— Hz</div>
+</div>
+
+<!-- ══ SIDE PANEL ══ -->
+<div id="side">
+
+  <!-- CONNECTION -->
+  <div class="psec">
+    <div class="plbl">เชื่อมต่อ rosbridge</div>
+    <div class="conn-row">
+      <input class="conn-input" id="ws-url" value="ws://localhost:9090" placeholder="ws://IP:9090">
+      <button class="btn g" id="btn-connect" onclick="connectROS()">เชื่อม</button>
+    </div>
+    <div style="font-size:9px;color:var(--cyan);font-family:'Space Mono',monospace;line-height:1.9;margin-top:4px">
+      # T1: Nav2<br>
+      ros2 launch mir_tm_bot mapping.launch.py<br>
+      <br>
+      # T2: initial pose<br>
+      ros2 topic pub /initialpose \<br>
+      &nbsp;geometry_msgs/msg/PoseWithCovarianceStamped \<br>
+      &nbsp;'{header:{frame_id:"map"},<br>
+      &nbsp;&nbsp;pose:{pose:{position:<br>
+      &nbsp;&nbsp;&nbsp;{x:3.282,y:3.807,z:0},<br>
+      &nbsp;&nbsp;&nbsp;orientation:{w:1.0}}}}' --once<br>
+      <br>
+      # T3: rosbridge<br>
+      ros2 launch rosbridge_server \<br>
+      &nbsp;rosbridge_websocket_launch.xml
+    </div>
+  </div>
+
+  <!-- ROS TOPICS STATUS -->
+  <div class="psec">
+    <div class="plbl">Topics</div>
+    <!-- SUB topics -->
+    <div class="topic-row">
+      <span class="topic-lbl">/tf map→base</span>
+      <span class="topic-badge" style="color:var(--green);background:rgba(63,185,80,.15)">TF</span>
+      <div class="topic-status" id="ts-tf"></div>
+    </div>
+    <div class="topic-row">
+      <span class="topic-lbl">/base_controller/odom</span>
+      <span class="topic-badge sub">SUB</span>
+      <div class="topic-status" id="ts-odom"></div>
+    </div>
+    <div class="topic-row">
+      <span class="topic-lbl">/f_scan</span>
+      <span class="topic-badge sub">SUB</span>
+      <div class="topic-status" id="ts-fscan"></div>
+    </div>
+    <div class="topic-row">
+      <span class="topic-lbl">/b_scan</span>
+      <span class="topic-badge sub">SUB</span>
+      <div class="topic-status" id="ts-bscan"></div>
+    </div>
+    <div class="topic-row">
+      <span class="topic-lbl">/map</span>
+      <span class="topic-badge sub">SUB</span>
+      <div class="topic-status" id="ts-map"></div>
+    </div>
+    <!-- PUB topics -->
+    <div class="topic-row">
+      <span class="topic-lbl">/goal_pose</span>
+      <span class="topic-badge pub">PUB</span>
+      <div class="topic-status" id="ts-goal"></div>
+    </div>
+    <div class="topic-row">
+      <span class="topic-lbl">/cmd_vel_unstamped</span>
+      <span class="topic-badge pub">PUB</span>
+      <div class="topic-status" id="ts-cmdvel"></div>
+    </div>
+
+    <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px;">
+      <div class="crow">
+        <label style="font-size:11px">ใช้ pose จาก /odom</label>
+        <label class="tog"><input type="checkbox" id="use-odom" onchange="toggleOdomMode()"><span class="track"></span><span class="thumb"></span></label>
+      </div>
+      <div class="crow">
+        <label style="font-size:11px">ส่ง goal ไป Nav2</label>
+        <label class="tog"><input type="checkbox" id="send-goal" checked><span class="track"></span><span class="thumb"></span></label>
+      </div>
+      <div class="crow">
+        <label style="font-size:11px">แสดง LIDAR scan</label>
+        <label class="tog"><input type="checkbox" id="show-lidar" onchange="draw()"><span class="track"></span><span class="thumb"></span></label>
+      </div>
+      <div class="crow">
+        <label style="font-size:11px">Subscribe /map</label>
+        <label class="tog"><input type="checkbox" id="sub-map" onchange="toggleMapSub()"><span class="track"></span><span class="thumb"></span></label>
+      </div>
+    </div>
+  </div>
+
+  <!-- ROBOT STATE -->
+  <div class="psec">
+    <div class="plbl">Robot State</div>
+    <div class="icard">
+      <div class="kv"><span class="k">X</span><span class="v g" id="rx-lbl">3.282</span></div>
+      <div class="kv"><span class="k">Y</span><span class="v g" id="ry-lbl">3.807</span></div>
+      <div class="kv"><span class="k">Heading</span><span class="v p" id="rh-lbl">0.0°</span></div>
+      <div class="kv"><span class="k">Speed</span><span class="v w" id="rs-lbl">0.00 m/s</span></div>
+      <div class="kv"><span class="k">State</span><span class="v c" id="rstate-lbl">Idle</span></div>
+      <div class="kv"><span class="k">Source</span><span class="v" id="rsrc-lbl" style="color:var(--muted)">SIM</span></div>
+    </div>
+    <div id="progress-bar"><div id="progress-fill"></div></div>
+  </div>
+
+  <!-- MAP META -->
+  <div class="psec">
+    <div class="plbl">Map Info</div>
+    <div class="icard">
+      <div class="kv"><span class="k">resolution</span><span class="v c">0.05 m/px</span></div>
+      <div class="kv"><span class="k">origin</span><span class="v c">(-7.28, -0.975)</span></div>
+      <div class="kv"><span class="k">size</span><span class="v c">424 × 193 px</span></div>
+      <div class="kv"><span class="k">covers</span><span class="v c">21.2 × 9.65 m</span></div>
+    </div>
+  </div>
+
+  <!-- SPEED -->
+  <div class="psec">
+    <div class="plbl">ความเร็ว Sim</div>
+    <div class="swrap">
+      <input type="range" id="speed-sl" min="0.5" max="6" step="0.5" value="1.5" oninput="onSpeedSlider(this)">
+      <span id="speed-lbl">1.5 m/s</span>
+    </div>
+  </div>
+
+  <!-- NAV DECISION ENGINE -->
+  <div class="psec">
+    <div class="plbl" style="display:flex;justify-content:space-between;align-items:center">
+      <span>🧭 Nav Decision</span>
+      <span id="nc-status" style="font-size:9px;color:var(--muted)">—</span>
+    </div>
+
+    <!-- Compass SVG -->
+    <div style="display:flex;justify-content:center;margin-bottom:8px">
+      <svg id="nav-compass" width="110" height="110" viewBox="0 0 110 110" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="55" cy="55" r="50" fill="none" stroke="#30363d" stroke-width="1"/>
+        <circle cx="55" cy="55" r="36" fill="none" stroke="#1c2128" stroke-width="1"/>
+        <text x="55" y="14" text-anchor="middle" fill="#8b949e" font-size="8" font-family="Space Mono,monospace">N</text>
+        <text x="55" y="100" text-anchor="middle" fill="#8b949e" font-size="8" font-family="Space Mono,monospace">S</text>
+        <text x="97" y="58" text-anchor="middle" fill="#8b949e" font-size="8" font-family="Space Mono,monospace">E</text>
+        <text x="13" y="58" text-anchor="middle" fill="#8b949e" font-size="8" font-family="Space Mono,monospace">W</text>
+        <!-- sensor arcs (4 quadrants) -->
+        <path id="nca-front" d="M55,19 A36,36 0 0,1 80,30" fill="none" stroke="#3fb950" stroke-width="3" opacity="0.7"/>
+        <path id="nca-back"  d="M55,91 A36,36 0 0,1 30,80" fill="none" stroke="#3fb950" stroke-width="3" opacity="0.7"/>
+        <path id="nca-left"  d="M19,55 A36,36 0 0,1 30,30" fill="none" stroke="#3fb950" stroke-width="3" opacity="0.7"/>
+        <path id="nca-right" d="M91,55 A36,36 0 0,1 80,80" fill="none" stroke="#3fb950" stroke-width="3" opacity="0.7"/>
+        <!-- nav arrow -->
+        <g id="nca-arrow" transform="rotate(0,55,55)">
+          <polygon points="55,23 59,42 55,38 51,42" fill="#58a6ff" opacity="0.9"/>
+          <line x1="55" y1="38" x2="55" y2="72" stroke="#58a6ff" stroke-width="1.2" opacity="0.4"/>
+        </g>
+        <!-- robot center -->
+        <circle cx="55" cy="55" r="7" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+        <circle cx="55" cy="55" r="3" fill="#bc8cff"/>
+      </svg>
+    </div>
+
+    <!-- Decision display -->
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;margin-bottom:8px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-size:8px;color:var(--muted);letter-spacing:.12em;margin-bottom:2px">COMMAND</div>
+          <div id="nc-cmd" style="font-family:'Space Mono',monospace;font-size:15px;color:var(--accent);font-weight:700">STANDBY</div>
+        </div>
+        <div id="nc-icon" style="font-size:28px;line-height:1">⏸</div>
+      </div>
+      <div id="nc-reason" style="font-size:10px;color:var(--muted);margin-top:3px;font-family:'Space Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">รอข้อมูล LIDAR...</div>
+      <div style="height:2px;background:var(--border);border-radius:1px;margin-top:5px;overflow:hidden">
+        <div id="nc-conf" style="height:100%;background:var(--accent);width:0%;transition:width .35s;border-radius:1px"></div>
+      </div>
+    </div>
+
+    <!-- D-pad -->
+    <div class="ndpad">
+      <button class="btn" onclick="navManual('ROTATE_LEFT')" title="หมุนซ้าย">↺</button>
+      <button class="btn" id="npb-fwd" onclick="navManual('FORWARD')">▲</button>
+      <button class="btn" onclick="navManual('ROTATE_RIGHT')" title="หมุนขวา">↻</button>
+      <button class="btn" id="npb-left" onclick="navManual('TURN_LEFT')">◀</button>
+      <button class="btn r" onclick="navManual('STOP')" style="font-size:11px">■ STOP</button>
+      <button class="btn" id="npb-right" onclick="navManual('TURN_RIGHT')">▶</button>
+      <button class="btn" onclick="navManual('STRAFE_L')" title="เฉียงซ้าย" style="font-size:11px">↙</button>
+      <button class="btn" id="npb-rev" onclick="navManual('REVERSE')">▼</button>
+      <button class="btn" onclick="navManual('STRAFE_R')" title="เฉียงขวา" style="font-size:11px">↘</button>
+    </div>
+
+    <!-- Mode + decide -->
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
+      <select class="nc-sel" id="nav-dec-mode">
+        <option value="rule">Rule-Based (LIDAR)</option>
+        <option value="ai">AI-Assisted (Ollama)</option>
+        <option value="manual">Manual Only</option>
+      </select>
+      <button class="btn g" style="font-size:10px;padding:4px 9px;white-space:nowrap" onclick="runNavDecide(true)">▶ ตัดสิน</button>
+    </div>
+    <!-- AUTO EXECUTE -->
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
+        <span style="font-size:11px;font-weight:600;color:var(--text)">⚡ Auto Execute</span>
+        <label class="tog"><input type="checkbox" id="nav-auto-exec" onchange="toggleNavAutoExec()"><span class="track"></span><span class="thumb"></span></label>
+      </div>
+      <div id="nav-auto-status" style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:6px">ปิด — เปิดเพื่อส่ง cmd_vel จริง</div>
+      <div style="display:flex;gap:8px">
+        <div style="flex:1">
+          <div style="font-size:9px;color:var(--muted)">LINEAR</div>
+          <div style="display:flex;align-items:center;gap:4px">
+            <input type="range" min="0.1" max="0.8" step="0.05" value="0.3" id="nav-spd-lin"
+              oninput="document.getElementById('nav-spd-lin-val').textContent=parseFloat(this.value).toFixed(2)">
+            <span id="nav-spd-lin-val" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--accent);min-width:28px">0.30</span>
+          </div>
+        </div>
+        <div style="flex:1">
+          <div style="font-size:9px;color:var(--muted)">ANGULAR</div>
+          <div style="display:flex;align-items:center;gap:4px">
+            <input type="range" min="0.2" max="1.5" step="0.05" value="0.6" id="nav-spd-ang"
+              oninput="document.getElementById('nav-spd-ang-val').textContent=parseFloat(this.value).toFixed(2)">
+            <span id="nav-spd-ang-val" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--accent);min-width:28px">0.60</span>
+          </div>
+        </div>
+      </div>
+      <div id="nav-auto-warn" style="font-size:9px;color:var(--warn);margin-top:4px;font-family:'Space Mono',monospace;display:none"></div>
+    </div>
+  </div>
+
+  <!-- WAYPOINTS -->
+  <div class="psec">
+    <div class="plbl">Waypoints <span id="wp-count" style="color:var(--accent);font-family:'Space Mono',monospace">(0)</span></div>
+    <div id="wp-list"><div style="color:var(--muted);font-size:11px">คลิกแผนที่เพื่อเพิ่มจุด<br>คลิกขวาเพื่อตัวเลือกเพิ่มเติม</div></div>
+    <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
+      <button class="btn" style="flex:1;justify-content:center" onclick="clearWaypoints()">ล้าง</button>
+      <button class="btn" style="flex:1;justify-content:center" onclick="addPreset()">Preset</button>
+      <button class="btn w" style="flex:1;justify-content:center" onclick="reverseWaypoints()" title="สลับลำดับ">⇅ Rev</button>
+    </div>
+  </div>
+
+  <!-- LAYERS -->
+  <div class="psec">
+    <div class="plbl">แสดงชั้น</div>
+    <div style="font-size:9px;color:var(--green);font-family:'Space Mono',monospace;margin-bottom:8px;">✓ มี ROS /map แล้ว — ปิด SDF/PGM ได้</div>
+    <div class="crow"><label>🗺 ROS /map (จริง)</label><label class="tog"><input type="checkbox" id="socc" checked><span class="track"></span><span class="thumb"></span></label></div>
+    <div class="crow"><label>🤖 ร่องรอย odom</label><label class="tog"><input type="checkbox" id="str" checked><span class="track"></span><span class="thumb"></span></label></div>
+    <div class="crow"><label>📍 เส้นทาง A*</label><label class="tog"><input type="checkbox" id="sph" checked><span class="track"></span><span class="thumb"></span></label></div>
+    <div class="crow" style="opacity:.5"><label>กำแพง SDF (hardcode)</label><label class="tog"><input type="checkbox" id="sw"><span class="track"></span><span class="thumb"></span></label></div>
+    <div class="crow" style="opacity:.5"><label>PGM scan (hardcode)</label><label class="tog"><input type="checkbox" id="sp"><span class="track"></span><span class="thumb"></span></label></div>
+    <div class="crow" style="opacity:.5"><label>วัตถุ SDF (hardcode)</label><label class="tog"><input type="checkbox" id="so"><span class="track"></span><span class="thumb"></span></label></div>
+    <div class="crow"><label>Grid (m)</label><label class="tog"><input type="checkbox" id="sg"><span class="track"></span><span class="thumb"></span></label></div>
+    <div class="swrap" style="margin-top:8px">
+      <span style="font-size:11px;color:var(--muted);min-width:30px">ซูม</span>
+      <input type="range" id="zoom-sl" min="6" max="100" value="30" oninput="onZoomSlider(this)">
+      <span id="zoom-lbl">30</span>
+    </div>
+  </div>
+
+  <!-- AI ROBOT BRAIN -->
+  <div class="psec" id="ai-section">
+    <div class="plbl" style="display:flex;justify-content:space-between;align-items:center">
+      <span>🧠 Robot AI Brain</span>
+      <span id="ai-status" style="font-size:9px;color:var(--muted)">พร้อม</span>
+    </div>
+
+    <!-- Ollama config -->
+    <div class="conn-row" style="margin-bottom:4px">
+      <input class="conn-input" id="ollama-url" value="http://klaadmin.tail1bd7aa.ts.net:11434" style="font-size:10px">
+    </div>
+    <div class="conn-row" style="margin-bottom:8px">
+      <input class="conn-input" id="ollama-model" value="qwen2:0.5b" placeholder="model name" style="font-size:10px">
+      <button class="btn g" style="font-size:10px;padding:3px 8px" onclick="testOllama()">ทดสอบ</button>
+    </div>
+    <div class="crow" style="margin-bottom:8px">
+      <label style="font-size:11px;color:var(--text)">🤖 Auto Brain (ตัดสินใจเอง)</label>
+      <label class="tog"><input type="checkbox" id="ai-auto" onchange="toggleAutoBrain()"><span class="track"></span><span class="thumb"></span></label>
+    </div>
+    <div id="ai-brain-status" style="font-size:10px;color:var(--muted);margin-bottom:8px;font-family:'Space Mono',monospace;display:none">
+      ⏱ ถัดไป: <span id="ai-countdown">30</span>s
+    </div>
+
+    <!-- Chat -->
+    <div id="ai-chat" style="max-height:180px;overflow-y:auto;margin-bottom:8px;display:flex;flex-direction:column;gap:5px;"></div>
+    <div style="display:flex;gap:6px;">
+      <input class="conn-input" id="ai-input" placeholder="สั่งงาน / ถามสถานะ..." style="font-size:11px"
+        onkeydown="if(event.key==='Enter')sendAI()">
+      <button class="btn g" onclick="sendAI()" style="padding:5px 10px;flex-shrink:0">ส่ง</button>
+    </div>
+
+    <!-- Quick buttons -->
+    <div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap;">
+      <button class="btn" style="font-size:10px;padding:2px 7px" onclick="quickPatrolPlan()">🗺 Patrol</button>
+      <button class="btn" style="font-size:10px;padding:2px 7px" onclick="aiQuick('Report LIDAR status: front='+lidarPointsF.length+' back='+lidarPointsB.length+' pts. Any issue?')">👁 LIDAR</button>
+      <button class="btn" style="font-size:10px;padding:2px 7px" onclick="aiQuick('Robot at X='+robotX.toFixed(1)+' Y='+robotY.toFixed(1)+' state='+robotState+' goalFails='+consecutiveFailCount+'. Status?')">📊 Status</button>
+      <button class="btn" style="font-size:10px;padding:2px 7px" onclick="aiQuick('Goal failed '+consecutiveFailCount+' times at X='+robotX.toFixed(1)+' Y='+robotY.toFixed(1)+'. Suggest new waypoints to avoid this area.')">⚠ Error</button>
+    </div>
+  </div>
+
+  <!-- LOG -->
+  <div class="psec" style="flex:1">
+    <div class="plbl" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Log</span>
+      <span style="cursor:pointer;color:var(--muted);font-size:9px" onclick="document.getElementById('log').innerHTML=''">ล้าง</span>
+    </div>
+    <div id="log"></div>
+  </div>
+</div>
+
+<!-- ══ MAP ══ -->
+<div id="map-area">
+  <canvas id="mc"></canvas>
+  <canvas id="scan-overlay"></canvas>
+</div>
+
+<div id="coords">— , —</div>
+<div id="mini"><canvas id="mini-c"></canvas></div>
+<div id="kbd-hint">คลิกซ้าย = Go To ทันที | คลิกขวา = เมนู | scroll = zoom | drag = pan | [Space]=fit [C]=clear</div>
+<div id="zbtn-wrap">
+  <button class="zbtn" onclick="changeZoom(1/1.2)">−</button>
+  <button class="zbtn" onclick="fitView()">⊡</button>
+  <button class="zbtn" onclick="changeZoom(1.2)">+</button>
+</div>
+
+<!-- RIGHT-CLICK CONTEXT MENU -->
+<div id="ctx-menu">
+  <div class="ctx-item" id="ctx-goto" onclick="ctxGoTo()">🎯 Go To จุดนี้ทันที</div>
+  <div class="ctx-item" id="ctx-add" onclick="ctxAddWaypoint()">📍 เพิ่มเป็น Waypoint (queue)</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" onclick="ctxSetOrigin()">🏠 ตั้งตำแหน่งเริ่มต้นหุ่น</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item danger" onclick="clearWaypoints()">🗑 ล้าง Waypoints ทั้งหมด</div>
+</div>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<script>
+// ════════════════════════════════════════════════════════════════════════
+// MAP DATA — walls, objects, PGM
+// ════════════════════════════════════════════════════════════════════════
+const MODEL_OX=3.28169, MODEL_OY=3.80679;
+function wr(lx,ly,len,thick,ang,name){return{name,lx:lx+MODEL_OX,ly:ly+MODEL_OY,len,thick,ang};}
+const walls=[
+  wr(-2.16669,-4.75679,10,0.15,0,'Wall_0'),wr(-4.17317,0.473408,0.15,1.5,0,'Wall_11'),
+  wr(0.532249,-2.85114,0.15,3.75,0,'Wall_13'),wr(-0.121824,-0.397064,2,0.15,2.35619,'Wall_14'),
+  wr(0.532249,2.52588,0.15,1.25,0,'Wall_16'),wr(-1.77372,3.95679,0.15,1.75,0,'Wall_18'),
+  wr(-6.19872,4.75679,9,0.15,0,'Wall_19'),wr(-10.6237,1.33179,0.15,7,0,'Wall_20'),
+  wr(-8.94872,-2.09321,3.5,0.15,0,'Wall_21'),wr(3.89185,-2.74973,2.5,0.15,0,'Wall_23'),
+  wr(2.75831,0.168211,0.15,6,0,'Wall_25'),wr(6.68331,-4.75679,8,0.15,0,'Wall_27'),
+  wr(10.6083,-2.95679,0.15,3.75,0,'Wall_28'),wr(9.05831,-1.15679,3.25,0.15,0,'Wall_29'),
+  wr(6.38248,-0.506789,2.75,0.15,2.61799,'Wall_30'),wr(6.69842,2.6714,8,0.15,0,'Wall_32'),
+  wr(10.6159,0.757304,0.15,3.97822,0,'Wall_33'),wr(-7.09169,-3.45679,0.15,2.75,0,'Wall_35'),
+  wr(-7.09169,1.54321,0.15,3.25,0,'Wall_37'),wr(-1.26775,3.07588,3.75,0.15,0,'Wall_39'),
+  wr(-6.29169,3.09321,1.75,0.15,0,'Wall_41'),wr(-4.58291,-2.21685,5,0.15,0,'Wall_9'),
+  wr(-7.1827,-2.125,0.342814,0.15,2.80557,'Wall_43'),
+];
+const objects=[
+  {name:'Box_1',type:'box',x:13.1472,y:5.58842,w:1,h:1.63},
+  {name:'Box_2',type:'box',x:-6.73607,y:7.73719,w:1,h:1.50},
+  {name:'Cyl_1',type:'cylinder',x:-4.89741,y:4.87716,r:0.5},
+  {name:'Cyl_2',type:'cylinder',x:9.0026,y:1.24243,r:0.5},
+];
+const PGM_W=424,PGM_H=193,PGM_RES=0.05,PGM_OX=-7.28,PGM_OY=-0.975;
+const freePixels=[[21,57],[21,59],[22,60],[23,59],[23,60],[24,54],[24,60],[24,61],[24,62],[25,60],[25,61],[25,62],[26,54],[26,55],[26,57],[26,58],[26,59],[26,60],[26,61],[26,62],[26,63],[27,56],[27,57],[27,58],[27,59],[27,60],[27,61],[27,62],[27,63],[28,50],[28,52],[28,54],[28,55],[28,56],[28,57],[28,58],[28,59],[28,60],[28,61],[28,62],[28,63],[28,64],[29,55],[29,56],[29,57],[29,58],[29,59],[29,60],[29,61],[29,62],[29,63],[29,64],[30,53],[30,54],[30,55],[30,56],[30,57],[30,58],[30,59],[30,60],[30,61],[30,62],[30,63],[30,64],[30,65],[31,55],[31,56],[31,57],[31,58],[31,59],[31,60],[31,61],[31,62],[31,63],[31,64],[31,65],[31,66],[32,52],[32,53],[32,54],[32,55],[32,56],[32,57],[32,58],[32,59],[32,60],[32,61],[32,62],[32,63],[32,64],[32,65],[32,66],[32,67],[32,68],[33,51],[33,54],[33,55],[33,56],[33,57],[33,58],[33,59],[33,60],[33,61],[33,62],[33,63],[33,64],[33,65],[33,66],[33,67],[33,68],[33,69],[33,70],[34,53],[34,56],[34,57],[34,58],[34,59],[34,60],[34,61],[34,62],[34,63],[34,64],[34,65],[34,66],[34,67],[34,68],[34,69],[34,70],[34,71],[34,72],[35,54],[35,55],[35,56],[35,57],[35,58],[35,59],[35,60],[35,61],[35,62],[35,63],[35,64],[35,65],[35,66],[35,67],[35,68],[35,69],[35,70],[35,72],[35,73],[35,74],[35,75],[36,56],[36,57],[36,58],[36,59],[36,61],[36,62],[36,63],[36,64],[36,65],[36,66],[36,67],[36,68],[36,69],[36,70],[36,71],[36,72],[36,73],[37,58],[37,61],[37,62],[37,63],[37,64],[37,65],[37,66],[37,67],[37,68],[37,69],[37,71],[37,75],[38,57],[38,61],[38,62],[38,63],[38,64],[38,65],[38,66],[38,67],[38,68],[38,69],[38,70],[38,72],[39,56],[39,58],[39,61],[39,62],[39,63],[39,64],[39,65],[39,66],[39,67],[39,68],[39,69],[39,70],[39,71],[39,74],[39,76],[40,57],[40,61],[40,62],[40,63],[40,64],[40,66],[40,67],[40,68],[40,70],[40,72],[40,75],[41,56],[41,59],[41,61],[41,62],[41,64],[41,66],[41,67],[41,68],[41,70],[41,72],[41,76],[42,55],[42,60],[42,62],[42,64],[42,66],[42,68],[42,69],[42,72],[42,77],[43,51],[43,58],[43,61],[43,64],[43,66],[43,67],[43,69],[43,71],[44,50],[44,59],[44,63],[44,67],[45,61],[45,68],[45,72],[46,58]];
+const wallPixels=[[46,48],[46,52],[46,54],[46,61],[46,66],[46,67],[46,69],[46,70],[46,71],[46,73],[46,75],[46,77],[46,82],[46,85],[47,55],[47,57],[47,59],[47,60],[47,63],[47,64],[47,65],[47,68]];
+
+// ════════════════════════════════════════════════════════════════════════
+// OCCUPANCY GRID + A*
+// ════════════════════════════════════════════════════════════════════════
+const GRID_RES=0.25, GRID_MARGIN=0.35;
+const GX0=-7.5, GY0=-1.2, GX1=14.2, GY1=9.0;
+const GW=Math.ceil((GX1-GX0)/GRID_RES), GH=Math.ceil((GY1-GY0)/GRID_RES);
+const grid=new Uint8Array(GW*GH);
+function gIdx(gx,gy){return gy*GW+gx;}
+function worldToGrid(wx,wy){return[Math.floor((wx-GX0)/GRID_RES),Math.floor((wy-GY0)/GRID_RES)];}
+function gridToWorld(gx,gy){return[GX0+(gx+0.5)*GRID_RES,GY0+(gy+0.5)*GRID_RES];}
+function buildGrid(){
+  grid.fill(0);
+  const R=GRID_MARGIN;
+  for(const w of walls){
+    const cos=Math.cos(w.ang),sin=Math.sin(w.ang);
+    const hw=w.len/2+R,hh=w.thick/2+R;
+    const[gx0,gy0]=worldToGrid(w.lx-hw,w.ly-hh);
+    const[gx1,gy1]=worldToGrid(w.lx+hw,w.ly+hh);
+    for(let gy=Math.max(0,gy0-2);gy<=Math.min(GH-1,gy1+2);gy++){
+      for(let gx=Math.max(0,gx0-2);gx<=Math.min(GW-1,gx1+2);gx++){
+        const[cx,cy]=gridToWorld(gx,gy);
+        const dx=cx-w.lx,dy=cy-w.ly;
+        const lx2=dx*cos+dy*sin, ly2=-dx*sin+dy*cos;
+        if(Math.abs(lx2)<=hw&&Math.abs(ly2)<=hh) grid[gIdx(gx,gy)]=1;
+      }
+    }
+  }
+  for(const o of objects){
+    const r=(o.type==='cylinder'?o.r:Math.max(o.w,o.h)*0.5)+R;
+    const[gx0,gy0]=worldToGrid(o.x-r,o.y-r);
+    const[gx1,gy1]=worldToGrid(o.x+r,o.y+r);
+    for(let gy=Math.max(0,gy0);gy<=Math.min(GH-1,gy1);gy++)
+      for(let gx=Math.max(0,gx0);gx<=Math.min(GW-1,gx1);gx++)
+        if(Math.hypot(gridToWorld(gx,gy)[0]-o.x,gridToWorld(gx,gy)[1]-o.y)<=r)
+          grid[gIdx(gx,gy)]=1;
+  }
+}
+buildGrid();
+
+function astar(sx,sy,gx2,gy2){
+  if(sx<0||sx>=GW||sy<0||sy>=GH||gx2<0||gx2>=GW||gy2<0||gy2>=GH)return null;
+  // snap goal off wall
+  if(grid[gIdx(gx2,gy2)]===1){
+    let found=false;
+    for(let r=1;r<=8&&!found;r++){
+      for(let dy=-r;dy<=r&&!found;dy++)for(let dx=-r;dx<=r&&!found;dx++){
+        if(Math.abs(dx)!==r&&Math.abs(dy)!==r)continue;
+        const nx=gx2+dx,ny=gy2+dy;
+        if(nx>=0&&nx<GW&&ny>=0&&ny<GH&&grid[gIdx(nx,ny)]===0){gx2=nx;gy2=ny;found=true;}
+      }
+    }
+    if(!found)return null;
+  }
+  const h=(x,y)=>Math.hypot(x-gx2,y-gy2)*GRID_RES;
+  const open=new Map(), closed=new Uint8Array(GW*GH);
+  const g=new Float32Array(GW*GH).fill(Infinity), par=new Int32Array(GW*GH).fill(-1);
+  const s=gIdx(sx,sy); g[s]=0; open.set(s,h(sx,sy));
+  const D=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+  const C=[1,1,1,1,1.414,1.414,1.414,1.414];
+  const goal=gIdx(gx2,gy2);
+  while(open.size>0){
+    let bf=Infinity,cur=-1;
+    for(const[id,f]of open)if(f<bf){bf=f;cur=id;}
+    if(cur<0)break;
+    open.delete(cur);
+    if(cur===goal){
+      const path=[];let c=cur;while(c!==-1){path.push(c);c=par[c];}path.reverse();
+      return path.map(id=>{const gx=id%GW,gy=Math.floor(id/GW);return gridToWorld(gx,gy);});
+    }
+    closed[cur]=1;
+    const cx2=cur%GW,cy2=Math.floor(cur/GW);
+    for(let i=0;i<8;i++){
+      const nx=cx2+D[i][0],ny=cy2+D[i][1];
+      if(nx<0||nx>=GW||ny<0||ny>=GH)continue;
+      const nid=gIdx(nx,ny);
+      if(closed[nid]||grid[nid])continue;
+      const ng=g[cur]+C[i]*GRID_RES;
+      if(ng<g[nid]){g[nid]=ng;par[nid]=cur;open.set(nid,ng+h(nx,ny));}
+    }
+  }
+  return null;
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// ROS2 / rosbridge  — FIXED: /f_scan + /b_scan, /map subscribe, Hz
+// ════════════════════════════════════════════════════════════════════════
+let ws=null;
+let rosConnected=false;
+let rosMode=false;
+let lidarPointsF=[], lidarPointsB=[];
+let nav2Path=[];
+let ppPathIdx=0;
+let odomCount=0;
+let mapSubbed=false;
+
+// Hz counter
+setInterval(()=>{
+  document.getElementById('hz-pill').textContent=odomCount+' Hz';
+  odomCount=0;
+},1000);
+
+// topic watchdog — /map ค้างเขียวตลอดหลังรับครั้งแรก (latched topic)
+const topicLastSeen={};
+const topicTimeout={odom:3000, fscan:3000, bscan:3000}; // map ไม่มี timeout
+const topicLatch=new Set(); // topics ที่รับแล้วค้างสถานะ
+function touchTopic(id){
+  topicLastSeen[id]=Date.now();
+  setTopicStatus(id,true);
+}
+function touchTopicLatched(id){
+  topicLatch.add(id);
+  setTopicStatus(id,true);
+}
+setInterval(()=>{
+  const now=Date.now();
+  Object.keys(topicTimeout).forEach(id=>{
+    if(!topicLatch.has(id)&&topicLastSeen[id]&&now-topicLastSeen[id]>topicTimeout[id])
+      setTopicStatus(id,false);
+  });
+},1000);
+
+function connectROS(){
+  const url=document.getElementById('ws-url').value.trim();
+  const btn=document.getElementById('btn-connect');
+  if(rosConnected){
+    ws.close(); ws=null;
+    btn.textContent='เชื่อม';
+    return;
+  }
+  if(ws){ws.close();ws=null;}
+  setStatus('กำลังเชื่อมต่อ...','#f0883e',true);
+  appendLog('เชื่อมต่อ '+url,'ros');
+  try{ ws=new WebSocket(url); }
+  catch(e){appendLog('URL ไม่ถูกต้อง: '+e.message,'err');return;}
+
+  ws.onopen=()=>{
+    rosConnected=true;
+    setStatus('เชื่อมต่อแล้ว','#3fb950',true);
+    btn.textContent='ตัดการเชื่อมต่อ';
+    document.getElementById('mode-badge').className='mode-badge mode-ros';
+    document.getElementById('mode-badge').textContent='ROS2';
+    appendLog('rosbridge เชื่อมต่อสำเร็จ ✓','ok');
+    subscribeTopics();
+  };
+  ws.onclose=()=>{
+    rosConnected=false;
+    mapSubbed=false;
+    rosMode=false;
+    rosMapData=null; rosMapBitmap=null;
+    // clear TF buffer
+    Object.keys(tfBuffer).forEach(k=>delete tfBuffer[k]);
+    // clear latched state so reconnect starts fresh
+    topicLatch.clear();
+    Object.keys(topicLastSeen).forEach(k=>delete topicLastSeen[k]);
+    setStatus('ตัดการเชื่อมต่อ','#8b949e',false);
+    btn.textContent='เชื่อม';
+    document.getElementById('mode-badge').className='mode-badge mode-sim';
+    document.getElementById('mode-badge').textContent='SIM';
+    document.getElementById('use-odom').checked=false;
+    document.getElementById('sub-map').checked=false;
+    const src=document.getElementById('rsrc-lbl');
+    src.textContent='SIM'; src.style.color='var(--muted)';
+    appendLog('rosbridge ปิดการเชื่อมต่อ','warn');
+    ['odom','tf','fscan','bscan','map','goal','cmdvel'].forEach(t=>setTopicStatus(t,false));
+  };
+  ws.onerror=()=>{ appendLog('WebSocket error','err'); };
+  ws.onmessage=e=>{ try{handleROSMsg(JSON.parse(e.data));}catch(err){} };
+}
+
+function rosSend(obj){
+  if(ws&&ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify(obj));
+}
+
+function subscribeTopics(){
+  rosSend({op:'subscribe',topic:'/base_controller/odom',type:'nav_msgs/msg/Odometry',throttle_rate:200});
+  rosSend({op:'subscribe',topic:'/f_scan',type:'sensor_msgs/msg/LaserScan',throttle_rate:300});
+  rosSend({op:'subscribe',topic:'/b_scan',type:'sensor_msgs/msg/LaserScan',throttle_rate:300});
+  // subscribe /tf เพื่อดึง map→base_footprint (ตำแหน่งจริงบน map)
+  rosSend({op:'subscribe',topic:'/tf',type:'tf2_msgs/msg/TFMessage',throttle_rate:200});
+  rosSend({op:'subscribe',topic:'/tf_static',type:'tf2_msgs/msg/TFMessage'});
+  rosSend({op:'advertise',topic:'/goal_pose',type:'geometry_msgs/msg/PoseStamped'});
+  rosSend({op:'advertise',topic:'/base_controller/cmd_vel_unstamped',type:'geometry_msgs/msg/Twist'});
+  rosSend({op:'subscribe',topic:'/map',type:'nav_msgs/msg/OccupancyGrid'});
+  rosSend({op:'subscribe',topic:'/plan',type:'nav_msgs/msg/Path',throttle_rate:500});
+  mapSubbed=true;
+  document.getElementById('sub-map').checked=true;
+  appendLog('Subscribe: /odom /tf /f_scan /b_scan /map | Pub: /goal_pose /cmd_vel','ros');
+}
+
+// ── TF buffer: เก็บ transform ล่าสุดของแต่ละ frame pair ──────────────
+const tfBuffer={};  // key = "parent->child"
+function storeTF(transforms){
+  for(const t of transforms){
+    const key=`${t.header.frame_id}->${t.child_frame_id}`;
+    tfBuffer[key]=t.transform;
+  }
+  // dot เขียวถ้ามี TF ใดๆ ที่เกี่ยวกับ base
+  const hasBase=Object.keys(tfBuffer).some(k=>k.includes('base_footprint')||k.includes('base_link'));
+  if(hasBase) setTopicStatus('tf',true);
+}
+
+// chain: map→odom→base_footprint (compose 2 transforms)
+function composeTF(a,b){
+  // a, b = {translation:{x,y,z}, rotation:{x,y,z,w}}
+  const ax=a.translation.x, ay=a.translation.y;
+  const aw=a.rotation.w, az=a.rotation.z;
+  const bx=b.translation.x, by=b.translation.y;
+  // rotate b position by a rotation (2D only)
+  const rx=ax + (aw*aw - az*az)*bx - 2*aw*az*by;
+  const ry=ay + 2*aw*az*bx + (aw*aw - az*az)*by;
+  // compose rotations (quaternion multiply, 2D)
+  const rw=aw*b.rotation.w - az*b.rotation.z;
+  const rz=aw*b.rotation.z + az*b.rotation.w;
+  return{translation:{x:rx,y:ry,z:0},rotation:{x:0,y:0,z:rz,w:rw}};
+}
+
+function getMapPose(){
+  // ลอง direct map→base_footprint หรือ map→base_link ก่อน
+  let tf=tfBuffer['map->base_footprint']||tfBuffer['map->base_link'];
+  if(tf) return poseFromTF(tf);
+  // ลอง chain: map→odom + odom→base_footprint
+  const mo=tfBuffer['map->odom'];
+  const ob=tfBuffer['odom->base_footprint']||tfBuffer['odom->base_link'];
+  if(mo&&ob) return poseFromTF(composeTF(mo,ob));
+  return null;
+}
+
+function poseFromTF(tf){
+  const q=tf.rotation;
+  const siny=2*(q.w*q.z+q.x*q.y);
+  const cosy=1-2*(q.y*q.y+q.z*q.z);
+  return{x:tf.translation.x, y:tf.translation.y, h:Math.atan2(siny,cosy)};
+}
+
+// ── updateRobotPose — central function, มี smoothing กัน teleport ──────
+let lastDrawTime=0;
+function updateRobotPose(nx, ny, nh, src){
+  // กัน teleport: ถ้า position กระโดด >5m ใน 1 update ให้ข้ามไป
+  const jump=Math.hypot(nx-robotX, ny-robotY);
+  if(jump>5.0 && robotX!==MODEL_OX){
+    appendLog(`⚠ TF jump ${jump.toFixed(2)}m ข้าม`,'warn');
+    return;
+  }
+
+  robotX=nx; robotY=ny; robotH=nh;
+  trail.push({x:robotX,y:robotY});
+  if(trail.length>MAX_TRAIL) trail.shift();
+
+  document.getElementById('rsrc-lbl').textContent=src;
+  document.getElementById('rsrc-lbl').style.color='var(--green)';
+
+  if(followRobot){
+    const cxT=wx(robotX), cyT=wy(robotY);
+    const W2=mapArea.clientWidth, H2=mapArea.clientHeight, margin=100;
+    if(cxT<margin||cxT>W2-margin||cyT<margin||cyT>H2-margin){
+      panX=W2/2-(robotX-XMIN)*SCALE; panY=H2/2-(YMAX-robotY)*SCALE;
+    }
+  }
+
+  nav2CheckArrival();
+
+  // throttle draw ไม่เกิน 30fps กัน UI กระตุก
+  const now=Date.now();
+  if(now-lastDrawTime > 33){
+    lastDrawTime=now;
+    draw(); updateUI();
+  }
+}
+
+function toggleMapSub(){
+  if(!rosConnected){showToast('ยังไม่ได้เชื่อมต่อ ROS2');document.getElementById('sub-map').checked=false;return;}
+  if(document.getElementById('sub-map').checked&&!mapSubbed){
+    // /map เป็น latched topic — ไม่ใส่ throttle_rate เพราะส่งแค่ครั้งเดียวตอน subscribe
+    rosSend({op:'subscribe',topic:'/map',type:'nav_msgs/msg/OccupancyGrid'});
+    mapSubbed=true;
+    appendLog('Subscribe: /map (latched — รอรับครั้งเดียว)','ros');
+  }else if(!document.getElementById('sub-map').checked){
+    rosSend({op:'unsubscribe',topic:'/map'});
+    mapSubbed=false;
+    topicLatch.delete('map');
+    rosMapData=null;
+    setTopicStatus('map',false);
+    appendLog('Unsubscribe: /map','warn');
+  }
+}
+
+// ── MAIN ROS MESSAGE HANDLER ──────────────────────────────────────────
+function handleROSMsg(msg){
+  if(!msg||!msg.topic)return;
+
+  // /tf และ /tf_static
+  if(msg.topic==='/tf'||msg.topic==='/tf_static'){
+    if(!msg.msg||!msg.msg.transforms) return;
+
+    // เช็คก่อนว่ามี map-related transform ใน batch นี้ไหม
+    const hasMapTF=msg.msg.transforms.some(t=>
+      t.header.frame_id==='map'||t.child_frame_id==='base_footprint'||t.child_frame_id==='base_link'
+    );
+
+    storeTF(msg.msg.transforms);
+
+    // อัปเดต robot pose เฉพาะถ้ามี relevant transform และเปิด use-odom
+    if(hasMapTF && document.getElementById('use-odom').checked){
+      const pose=getMapPose();
+      if(pose){
+        updateRobotPose(pose.x, pose.y, pose.h, 'TF map→base');
+      }
+    }
+    return;
+  }
+
+  // /odom — fallback ถ้าไม่มี TF
+  if(msg.topic==='/base_controller/odom'){
+    odomCount++;
+    touchTopic('odom');
+    if(document.getElementById('use-odom').checked&&msg.msg){
+      const hasTF=tfBuffer['map->base_footprint']||tfBuffer['map->base_link']||
+                  (tfBuffer['map->odom']&&(tfBuffer['odom->base_footprint']||tfBuffer['odom->base_link']));
+      if(!hasTF){
+        const p=msg.msg.pose.pose.position;
+        const q=msg.msg.pose.pose.orientation;
+        const siny=2*(q.w*q.z+q.x*q.y);
+        const cosy=1-2*(q.y*q.y+q.z*q.z);
+        updateRobotPose(p.x, p.y, Math.atan2(siny,cosy), 'odom (no TF)');
+      }
+    }
+    return;
+  }
+
+  // /f_scan — FIX: was checking '/scan' (never matched)
+  if(msg.topic==='/f_scan'){
+    touchTopic('fscan');
+    if(document.getElementById('show-lidar').checked&&msg.msg)
+      lidarPointsF=parseScan(msg.msg);
+    onLidarUpdate();
+    return;
+  }
+
+  // /b_scan — FIX: new handler
+  if(msg.topic==='/b_scan'){
+    touchTopic('bscan');
+    if(document.getElementById('show-lidar').checked&&msg.msg)
+      lidarPointsB=parseScan(msg.msg);
+    onLidarUpdate();
+    return;
+  }
+
+  if(msg.topic==='/plan'){
+    if(msg.msg&&msg.msg.poses&&msg.msg.poses.length>0){
+      nav2Path=msg.msg.poses.map(p=>({x:p.pose.position.x,y:p.pose.position.y}));
+      ppPathIdx=0;
+    }
+    return;
+  }
+  // /map — latched topic
+  if(msg.topic==='/map'){
+    touchTopicLatched('map');
+    if(msg.msg) processMapMsg(msg.msg);
+    return;
+  }
+}
+
+function parseScan(scan){
+  const pts=[];
+  const{angle_min,angle_increment,ranges,range_min,range_max}=scan;
+  if(!ranges)return pts;
+  for(let i=0;i<ranges.length;i++){
+    const r=ranges[i];
+    if(r<range_min||r>range_max||!isFinite(r))continue;
+    const a=angle_min+i*angle_increment+robotH;
+    pts.push({x:robotX+r*Math.cos(a),y:robotY+r*Math.sin(a)});
+  }
+  return pts;
+}
+
+// /map occupancy grid
+let rosMapData=null;
+let rosMapBitmap=null;  // ImageBitmap สำหรับ drawImage เร็ว
+
+function processMapMsg(mapMsg){
+  const w=mapMsg.info.width, h=mapMsg.info.height;
+  const res=mapMsg.info.resolution;
+  const ox=mapMsg.info.origin.position.x;
+  const oy=mapMsg.info.origin.position.y;
+  const data=mapMsg.data;
+
+  rosMapData={width:w,height:h,res,ox,oy,data};
+
+  // สร้าง ImageData จาก OccupancyGrid
+  // occupancy: -1=unknown(grey), 0=free(white), 1-100=occupied(dark→black)
+  const imgData=new ImageData(w,h);
+  const px=imgData.data;
+  for(let i=0;i<data.length;i++){
+    const v=data[i];
+    const idx=i*4;
+    if(v===-1){
+      // unknown — grey
+      px[idx]=128;px[idx+1]=128;px[idx+2]=128;px[idx+3]=180;
+    } else if(v===0){
+      // free — white/light
+      px[idx]=210;px[idx+1]=220;px[idx+2]=220;px[idx+3]=220;
+    } else {
+      // occupied — dark (สัดส่วนตาม probability)
+      const dark=Math.round(20*(1-v/100));
+      px[idx]=dark;px[idx+1]=dark;px[idx+2]=dark;px[idx+3]=255;
+    }
+  }
+
+  // แปลงเป็น ImageBitmap (async, non-blocking)
+  createImageBitmap(imgData).then(bmp=>{
+    rosMapBitmap=bmp;
+    appendLog(`/map รับแล้ว: ${w}×${h} px, res=${res}m → render ✓`,'ok');
+    draw(); // redraw ทันทีหลังได้ bitmap
+  });
+}
+
+function setTopicStatus(id,ok){
+  const el=document.getElementById('ts-'+id);
+  if(el)el.className='topic-status'+(ok?' ok':'');
+}
+
+// ── PUBLISHERS ───────────────────────────────────────────────────────
+function publishGoal(x,y,yaw=0){
+  if(!rosConnected)return;
+  const cz=Math.sin(yaw/2), cw=Math.cos(yaw/2);
+  setTopicStatus('goal',true);
+  setTimeout(()=>setTopicStatus('goal',false),1000);
+  rosSend({
+    op:'publish',topic:'/goal_pose',
+    msg:{
+      header:{frame_id:'map',stamp:{sec:Math.floor(Date.now()/1000),nanosec:(Date.now()%1000)*1e6}},
+      pose:{
+        position:{x,y,z:0},
+        orientation:{x:0,y:0,z:cz,w:cw}
+      }
+    }
+  });
+  appendLog(`Nav2 goal → (${x.toFixed(3)}, ${y.toFixed(3)}) yaw:${(yaw*180/Math.PI).toFixed(1)}°`,'ros');
+}
+
+function publishCmdVel(linear_x,angular_z){
+  if(!rosConnected)return;
+  setTopicStatus('cmdvel',true);
+  rosSend({
+    op:'publish',topic:'/base_controller/cmd_vel_unstamped',
+    msg:{linear:{x:linear_x,y:0,z:0},angular:{x:0,y:0,z:angular_z}}
+  });
+}
+
+function sendEmergencyStop(){
+  if(rosConnected){
+    for(let i=0;i<3;i++) setTimeout(()=>publishCmdVel(0,0),i*50); // send 3x
+    appendLog('⚠ E-STOP — cmd_vel=0 (x3)','err');
+  }
+  stopRobot();
+  showToast('⚠ EMERGENCY STOP');
+}
+
+function toggleOdomMode(){
+  const chk=document.getElementById('use-odom');
+  const on=chk.checked;
+  if(on&&!rosConnected){
+    chk.checked=false;
+    showToast('⚠ ยังไม่ได้เชื่อมต่อ ROS2 — เชื่อมก่อนแล้วค่อยเปิด');
+    appendLog('ใช้ /odom ไม่ได้ — ยังไม่ได้เชื่อมต่อ rosbridge','err');
+    return;
+  }
+  rosMode=on;
+  const src=document.getElementById('rsrc-lbl');
+  src.textContent=on?'ROS /odom':'SIM';
+  src.style.color=on?'var(--green)':'var(--muted)';
+  appendLog(on?'ใช้ /base_controller/odom จาก ROS2 ✓':'ใช้ SIM mode',on?'ok':'ros');
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// ROBOT SIMULATION STATE
+// ════════════════════════════════════════════════════════════════════════
+let robotX=MODEL_OX, robotY=MODEL_OY, robotH=0;
+let robotSpeed=1.5;
+const trail=[], MAX_TRAIL=1000;
+let waypoints=[], currentPath=null, pathIdx=0;
+let autoMode=false, patrolMode=false, robotState='Idle';
+let lastTime=null, animFrame=null, followRobot=true;
+
+function planTo(tx,ty){
+  const[sx,sy]=worldToGrid(robotX,robotY);
+  const[gx2,gy2]=worldToGrid(tx,ty);
+  const path=astar(sx,sy,gx2,gy2);
+  if(!path||path.length<2){appendLog('ไม่พบเส้นทาง!','err');return false;}
+  currentPath=path; pathIdx=1;
+  appendLog(`A* ${path.length} จุด → (${tx.toFixed(2)},${ty.toFixed(2)})`,'info');
+  return true;
+}
+
+function useNav2Mode(){
+  return rosConnected && document.getElementById('send-goal').checked;
+}
+
+function animate(ts){
+  animFrame=requestAnimationFrame(animate);
+  const dt=lastTime?Math.min((ts-lastTime)/1000,0.1):0;
+  lastTime=ts;
+  // Nav2 mode: ไม่ต้องวน stepRobot — goal ส่งครั้งเดียวแล้วหยุด
+  // odom polling จัดการแยกใน handleROSMsg
+  if((autoMode||patrolMode) && waypoints.length>0 && !useNav2Mode()){
+    stepRobotSim(dt);
+  }
+  updateUI(); draw();
+}
+
+// ── ROS Nav2 mode ─────────────────────────────────────────────────────
+// ส่ง goal ครั้งเดียวแล้วหยุด — odom ใน handleROSMsg คอย check ระยะ
+let nav2GoalSent=false;
+let goalSentTime=0;
+let arrivalStableCount=0;      // ต้องอยู่ใน radius ติดกัน N ครั้ง ก่อน confirm
+const ARRIVAL_RADIUS=0.8;
+const ARRIVAL_STABLE_NEEDED=3;
+const GOAL_COOLDOWN=5000;  // 5s กัน goal preempt
+let lastGoalArriveTime=0;
+
+function sendNav2Goal(x,y){
+  if(nav2GoalSent) return;
+  // cooldown กัน publish ซ้ำเร็วเกินไป
+  if(Date.now()-lastGoalArriveTime < GOAL_COOLDOWN) return;
+  nav2GoalSent=true;
+  goalSentTime=Date.now();
+  arrivalStableCount=0;
+  nav2Path=[];
+  ppPathIdx=0;
+  publishGoal(x,y);
+  robotState='Nav2 → Goal';
+  setStatus(`Nav2: (${x.toFixed(2)},${y.toFixed(2)})...`,'#f0883e',true);
+  appendLog(`Nav2 goal → (${x.toFixed(2)},${y.toFixed(2)})`,'ros');
+}
+
+function nav2CheckArrival(){
+  if((!autoMode&&!patrolMode) || !nav2GoalSent || !waypoints.length) return;
+  const wp=waypoints[0];
+  const dist=Math.hypot(robotX-wp.x, robotY-wp.y);
+
+  if(dist < ARRIVAL_RADIUS){
+    arrivalStableCount++;
+    // ต้องอยู่ใน radius ติดกัน N ครั้ง จึงถือว่าถึงจริง (กัน oscillate)
+    if(arrivalStableCount >= ARRIVAL_STABLE_NEEDED){
+      appendLog(`✓ ถึง (${wp.x.toFixed(2)},${wp.y.toFixed(2)}) dist=${dist.toFixed(2)}m [stable ${arrivalStableCount}]`,'ok');
+      nav2GoalSent=false;
+      arrivalStableCount=0;
+      consecutiveFailCount=0;
+      lastGoalArriveTime=Date.now();
+
+      if(patrolMode) waypoints.push(waypoints.shift());
+      else waypoints.shift();
+      updateWpList();
+
+      if(waypoints.length>0){
+        // delay ก่อนส่ง goal ถัดไป กัน Nav2 preempt ตัวเอง
+        setTimeout(()=>{
+          if((autoMode||patrolMode) && waypoints.length>0)
+            sendNav2Goal(waypoints[0].x, waypoints[0].y);
+        }, GOAL_COOLDOWN);
+      } else if(!patrolMode){
+        stopRobot();
+        showToast('✅ ถึงจุดหมายแล้ว');
+      }
+    }
+  } else {
+    // ออกนอก radius → reset stable count
+    arrivalStableCount=0;
+  }
+
+  // goal timeout 90s
+  if(nav2GoalSent && goalSentTime && Date.now()-goalSentTime > 60000){
+    appendLog('⏱ Goal timeout (90s)','err');
+    nav2GoalSent=false;
+    goalSentTime=0;
+    arrivalStableCount=0;
+    reportGoalFail();
+  }
+}
+
+// ── SIM A* mode ───────────────────────────────────────────────────────
+function stepRobotSim(dt){
+  if(!currentPath || pathIdx>=currentPath.length || (Array.isArray(currentPath)&&currentPath[0]==='sent')){
+    if(!waypoints.length){stopRobot();return;}
+    if(!planTo(waypoints[0].x, waypoints[0].y)){
+      waypoints.shift(); updateWpList(); return;
+    }
+    robotState='Moving';
+    setStatus('กำลังเดิน... [SIM]','#f0883e',true);
+  }
+  if(!currentPath || pathIdx>=currentPath.length){
+    appendLog(`SIM ถึง (${waypoints[0]?.x.toFixed(2)},${waypoints[0]?.y.toFixed(2)}) ✓`,'ok');
+    if(patrolMode) waypoints.push(waypoints.shift());
+    else waypoints.shift();
+    currentPath=null; updateWpList();
+    if(!waypoints.length&&!patrolMode) stopRobot();
+    return;
+  }
+  const[tx,ty]=currentPath[pathIdx];
+  const dx=tx-robotX, dy=ty-robotY, dist=Math.hypot(dx,dy);
+  const step=robotSpeed*dt;
+  const tH=Math.atan2(dy,dx);
+  let dh=tH-robotH;
+  while(dh>Math.PI) dh-=2*Math.PI;
+  while(dh<-Math.PI) dh+=2*Math.PI;
+  robotH+=Math.sign(dh)*Math.min(Math.abs(dh),8*dt);
+  if(step>=dist){robotX=tx;robotY=ty;pathIdx++;}
+  else{robotX+=dx/dist*step; robotY+=dy/dist*step;}
+  trail.push({x:robotX,y:robotY});
+  if(trail.length>MAX_TRAIL) trail.shift();
+  if(followRobot){
+    const cxT=wx(robotX), cyT=wy(robotY);
+    const W2=mapArea.clientWidth, H2=mapArea.clientHeight, margin=80;
+    if(cxT<margin||cxT>W2-margin||cyT<margin||cyT>H2-margin){
+      panX=W2/2-(robotX-XMIN)*SCALE; panY=H2/2-(YMAX-robotY)*SCALE;
+    }
+  }
+  const pct=currentPath.length>1?((pathIdx-1)/(currentPath.length-1))*100:100;
+  document.getElementById('progress-fill').style.width=pct+'%';
+}
+
+function updateUI(){
+  document.getElementById('rx-lbl').textContent=robotX.toFixed(3);
+  document.getElementById('ry-lbl').textContent=robotY.toFixed(3);
+  document.getElementById('rh-lbl').textContent=(robotH*180/Math.PI).toFixed(1)+'°';
+  const simMoving=(autoMode||patrolMode)&&!useNav2Mode()&&currentPath&&Array.isArray(currentPath)&&currentPath[0]!=='sent'&&pathIdx<currentPath.length;
+  document.getElementById('rs-lbl').textContent=simMoving?robotSpeed.toFixed(2)+' m/s':'0.00 m/s';
+  document.getElementById('rstate-lbl').textContent=robotState;
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// DRAW
+// ════════════════════════════════════════════════════════════════════════
+const XMIN=-7.5, XMAX=14.2, YMIN=-1.2, YMAX=9.0;
+let SCALE=30, panX=0, panY=0;
+let dragging=false, dragSX=0, dragSY=0, dragPX=0, dragPY=0;
+const canvas=document.getElementById('mc');
+const ctx=canvas.getContext('2d');
+const scanCv=document.getElementById('scan-overlay');
+const sCtx=scanCv.getContext('2d');
+const miniC=document.getElementById('mini-c');
+const mCtx=miniC.getContext('2d');
+const mapArea=document.getElementById('map-area');
+
+function wx(x){return panX+(x-XMIN)*SCALE;}
+function wy(y){return panY+(YMAX-y)*SCALE;}
+function cxToWorld(cx){return(cx-panX)/SCALE+XMIN;}
+function cyToWorld(cy){return YMAX-(cy-panY)/SCALE;}
+
+function draw(){
+  const W=mapArea.clientWidth, H=mapArea.clientHeight;
+  canvas.width=W; canvas.height=H;
+  scanCv.width=W; scanCv.height=H;
+  ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,W,H);
+  sCtx.clearRect(0,0,W,H);
+
+  // Grid
+  if(document.getElementById('sg').checked){
+    ctx.strokeStyle='rgba(48,54,61,.7)'; ctx.lineWidth=0.5;
+    for(let x=Math.floor(XMIN);x<=Math.ceil(XMAX);x++){ctx.beginPath();ctx.moveTo(wx(x),0);ctx.lineTo(wx(x),H);ctx.stroke();}
+    for(let y=Math.floor(YMIN);y<=Math.ceil(YMAX);y++){ctx.beginPath();ctx.moveTo(0,wy(y));ctx.lineTo(W,wy(y));ctx.stroke();}
+    ctx.fillStyle='rgba(139,148,158,.4)'; ctx.font='9px Space Mono,monospace';
+    for(let x=Math.floor(XMIN);x<=Math.ceil(XMAX);x+=2) ctx.fillText(x+'m',wx(x)+2,wy(YMIN)-4);
+    for(let y=Math.floor(YMIN);y<=Math.ceil(YMAX);y+=2) ctx.fillText(y+'m',3,wy(y)+4);
+  }
+
+  // Axes
+  ctx.strokeStyle='rgba(248,81,73,.3)'; ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(0,wy(0));ctx.lineTo(W,wy(0));ctx.stroke();
+  ctx.strokeStyle='rgba(63,185,80,.3)';
+  ctx.beginPath();ctx.moveTo(wx(0),0);ctx.lineTo(wx(0),H);ctx.stroke();
+
+  // ROS /map — OccupancyGrid row0 = bottom (Y+ up), canvas row0 = top → ต้อง flip Y
+  if(document.getElementById('socc').checked && rosMapBitmap && rosMapData){
+    const{width,height,res,ox,oy}=rosMapData;
+    const x0=wx(ox);
+    const y0=wy(oy);          // top-left ใน world = oy (Y ล่างสุดของ map)
+    const w2=width*res*SCALE;
+    const h2=height*res*SCALE;
+    ctx.save();
+    ctx.globalAlpha=0.88;
+    // flip แนวตั้ง: translate ไป y0, scale Y=-1, แล้ว drawImage จาก 0
+    ctx.translate(x0, y0);
+    ctx.scale(1, -1);
+    ctx.drawImage(rosMapBitmap, 0, 0, w2, h2);
+    ctx.restore();
+  }
+
+  // PGM
+  if(document.getElementById('sp').checked){
+    const ps=PGM_RES*SCALE;
+    ctx.fillStyle='rgba(56,189,248,.18)';
+    for(const[r,c] of freePixels) ctx.fillRect(wx(PGM_OX+c*PGM_RES),wy(PGM_OY+(PGM_H-r)*PGM_RES)-ps,ps,ps);
+    ctx.fillStyle='rgba(240,136,62,.45)';
+    for(const[r,c] of wallPixels) ctx.fillRect(wx(PGM_OX+c*PGM_RES),wy(PGM_OY+(PGM_H-r)*PGM_RES)-ps,ps,ps);
+  }
+
+  // Walls
+  if(document.getElementById('sw').checked){
+    for(const w of walls){
+      ctx.save(); ctx.translate(wx(w.lx),wy(w.ly)); ctx.rotate(-w.ang);
+      ctx.fillStyle='#c9d1d9';
+      ctx.fillRect(-w.len*SCALE/2,-w.thick*SCALE/2,w.len*SCALE,w.thick*SCALE);
+      ctx.restore();
+    }
+  }
+
+  // Objects
+  if(document.getElementById('so').checked){
+    for(const o of objects){
+      const cx2=wx(o.x), cy2=wy(o.y);
+      if(o.type==='cylinder'){
+        const pr=o.r*SCALE;
+        ctx.beginPath(); ctx.arc(cx2,cy2,pr,0,Math.PI*2);
+        ctx.fillStyle='rgba(74,144,217,.4)'; ctx.fill();
+        ctx.strokeStyle='#4a90d9'; ctx.lineWidth=1.5; ctx.stroke();
+        ctx.fillStyle='#7bc1f7'; ctx.font=`bold ${Math.max(9,pr*.9)}px Space Mono,monospace`;
+        ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('C',cx2,cy2);
+      }else{
+        const pw=o.w*SCALE, ph=o.h*SCALE;
+        ctx.fillStyle='rgba(224,112,48,.4)'; ctx.fillRect(cx2-pw/2,cy2-ph/2,pw,ph);
+        ctx.strokeStyle='#e07030'; ctx.lineWidth=1.5; ctx.strokeRect(cx2-pw/2,cy2-ph/2,pw,ph);
+        ctx.fillStyle='#f0883e'; ctx.font=`bold ${Math.max(9,SCALE*.4)}px Space Mono,monospace`;
+        ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('B',cx2,cy2);
+      }
+    }
+  }
+
+  // LIDAR overlay — FIX: render both f_scan (cyan) and b_scan (yellow)
+  if(document.getElementById('show-lidar').checked){
+    const allPts=[
+      {pts:lidarPointsF, col:'rgba(57,213,213,0.7)', fanCol:'rgba(57,213,213,0.07)'},
+      {pts:lidarPointsB, col:'rgba(255,220,50,0.7)',  fanCol:'rgba(255,220,50,0.07)'},
+    ];
+    for(const{pts,col,fanCol} of allPts){
+      if(!pts.length)continue;
+      sCtx.fillStyle=col;
+      for(const p of pts){
+        sCtx.beginPath(); sCtx.arc(wx(p.x),wy(p.y),2.5,0,Math.PI*2); sCtx.fill();
+      }
+      sCtx.strokeStyle=fanCol; sCtx.lineWidth=1;
+      for(let i=0;i<pts.length;i+=5){
+        sCtx.beginPath(); sCtx.moveTo(wx(robotX),wy(robotY));
+        sCtx.lineTo(wx(pts[i].x),wy(pts[i].y)); sCtx.stroke();
+      }
+    }
+  }
+
+  // Trail
+  if(document.getElementById('str').checked&&trail.length>1){
+    ctx.beginPath(); ctx.moveTo(wx(trail[0].x),wy(trail[0].y));
+    for(let i=1;i<trail.length;i++) ctx.lineTo(wx(trail[i].x),wy(trail[i].y));
+    ctx.strokeStyle='rgba(188,140,255,.35)'; ctx.lineWidth=2;
+    ctx.lineJoin='round'; ctx.setLineDash([]); ctx.stroke();
+  }
+
+  // A* path
+  if(document.getElementById('sph').checked&&currentPath&&pathIdx<currentPath.length){
+    ctx.beginPath(); ctx.moveTo(wx(robotX),wy(robotY));
+    for(let i=pathIdx;i<currentPath.length;i++) ctx.lineTo(wx(currentPath[i][0]),wy(currentPath[i][1]));
+    ctx.strokeStyle='rgba(88,166,255,.55)'; ctx.lineWidth=2;
+    ctx.setLineDash([4,4]); ctx.stroke(); ctx.setLineDash([]);
+    const g=currentPath[currentPath.length-1];
+    ctx.beginPath(); ctx.arc(wx(g[0]),wy(g[1]),5,0,Math.PI*2);
+    ctx.fillStyle='rgba(88,166,255,.8)'; ctx.fill();
+  }
+
+  // Waypoints
+  waypoints.forEach((wp,i)=>{
+    const cx2=wx(wp.x), cy2=wy(wp.y), isN=i===0;
+    ctx.beginPath(); ctx.arc(cx2,cy2,isN?9:6,0,Math.PI*2);
+    ctx.fillStyle=isN?'rgba(63,185,80,.7)':'rgba(88,166,255,.4)'; ctx.fill();
+    ctx.strokeStyle=isN?'#3fb950':'#58a6ff'; ctx.lineWidth=isN?2:1.5; ctx.stroke();
+    ctx.fillStyle=isN?'#3fb950':'#58a6ff';
+    ctx.font=`bold ${Math.max(9,SCALE*.35)}px Space Mono,monospace`;
+    ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(i+1,cx2,cy2);
+    if(wp.src==='ros'&&SCALE>18){
+      ctx.fillStyle='rgba(63,185,80,.8)'; ctx.font='8px Space Mono,monospace';
+      ctx.fillText('ROS',cx2,cy2-(isN?14:11));
+    }
+    if(i<waypoints.length-1){
+      ctx.beginPath(); ctx.moveTo(cx2,cy2);
+      ctx.lineTo(wx(waypoints[i+1].x),wy(waypoints[i+1].y));
+      ctx.strokeStyle='rgba(88,166,255,.18)'; ctx.lineWidth=1;
+      ctx.setLineDash([3,5]); ctx.stroke(); ctx.setLineDash([]);
+    }
+  });
+
+  // Robot
+  const rx=wx(robotX), ry=wy(robotY), rr=Math.max(5,SCALE*.45);
+  ctx.save();
+  // glow rings
+  for(let i=3;i>0;i--){
+    ctx.beginPath(); ctx.arc(rx,ry,rr+i*4,0,Math.PI*2);
+    ctx.strokeStyle=`rgba(188,140,255,${.04*i})`; ctx.lineWidth=2; ctx.stroke();
+  }
+  // heading arrow
+  const hx=rx+Math.cos(robotH)*rr*2.5, hy=ry-Math.sin(robotH)*rr*2.5;
+  ctx.strokeStyle='rgba(188,140,255,.8)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(rx,ry); ctx.lineTo(hx,hy); ctx.stroke();
+  ctx.fillStyle='rgba(188,140,255,.8)';
+  ctx.beginPath();
+  ctx.moveTo(hx,hy);
+  ctx.lineTo(hx-Math.cos(robotH-.4)*rr*.7,hy+Math.sin(robotH-.4)*rr*.7);
+  ctx.lineTo(hx-Math.cos(robotH+.4)*rr*.7,hy+Math.sin(robotH+.4)*rr*.7);
+  ctx.closePath(); ctx.fill();
+  // body
+  ctx.shadowColor='rgba(188,140,255,.9)'; ctx.shadowBlur=SCALE*.5;
+  ctx.beginPath(); ctx.arc(rx,ry,rr,0,Math.PI*2);
+  ctx.fillStyle='rgba(188,140,255,.95)'; ctx.fill();
+  ctx.shadowBlur=0;
+  ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.strokeStyle='rgba(13,17,23,.8)'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(rx-rr*.45,ry); ctx.lineTo(rx+rr*.45,ry); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(rx,ry-rr*.45); ctx.lineTo(rx,ry+rr*.45); ctx.stroke();
+  // ROS connected ring
+  if(rosConnected){
+    ctx.beginPath(); ctx.arc(rx,ry,rr+3,0,Math.PI*2);
+    ctx.strokeStyle='rgba(63,185,80,.8)'; ctx.lineWidth=2; ctx.stroke();
+  }
+  ctx.restore();
+
+  // ── เส้นทาง: เริ่มจาก hx,hy (ปลายลูกศรสีม่วง) ─────────────────────
+  if(document.getElementById('sph').checked){
+    if(nav2Path.length>1){
+      ctx.beginPath(); ctx.moveTo(hx,hy);
+      for(let i=0;i<nav2Path.length;i++) ctx.lineTo(wx(nav2Path[i].x),wy(nav2Path[i].y));
+      ctx.strokeStyle='rgba(63,185,80,.9)'; ctx.lineWidth=2.5;
+      ctx.setLineDash([6,3]); ctx.stroke(); ctx.setLineDash([]);
+      const gp=nav2Path[nav2Path.length-1];
+      ctx.beginPath(); ctx.arc(wx(gp.x),wy(gp.y),7,0,Math.PI*2);
+      ctx.fillStyle='rgba(63,185,80,.85)'; ctx.fill();
+      ctx.strokeStyle='#3fb950'; ctx.lineWidth=2; ctx.stroke();
+    }
+    if(waypoints.length>0){
+      ctx.beginPath(); ctx.moveTo(hx,hy);
+      ctx.lineTo(wx(waypoints[0].x),wy(waypoints[0].y));
+      ctx.strokeStyle=nav2Path.length>1?'rgba(88,166,255,.2)':'rgba(88,166,255,.7)';
+      ctx.lineWidth=1.5; ctx.setLineDash([4,6]); ctx.stroke(); ctx.setLineDash([]);
+      if(waypoints.length>1){
+        ctx.beginPath(); ctx.moveTo(wx(waypoints[0].x),wy(waypoints[0].y));
+        for(let i=1;i<waypoints.length;i++) ctx.lineTo(wx(waypoints[i].x),wy(waypoints[i].y));
+        ctx.strokeStyle='rgba(88,166,255,.35)'; ctx.lineWidth=1.5;
+        ctx.setLineDash([3,6]); ctx.stroke(); ctx.setLineDash([]);
+      }
+    }
+    if(currentPath&&pathIdx<currentPath.length){
+      ctx.beginPath(); ctx.moveTo(hx,hy);
+      for(let i=pathIdx;i<currentPath.length;i++) ctx.lineTo(wx(currentPath[i][0]),wy(currentPath[i][1]));
+      ctx.strokeStyle='rgba(88,166,255,.55)'; ctx.lineWidth=2;
+      ctx.setLineDash([4,4]); ctx.stroke(); ctx.setLineDash([]);
+      const g=currentPath[currentPath.length-1];
+      ctx.beginPath(); ctx.arc(wx(g[0]),wy(g[1]),5,0,Math.PI*2);
+      ctx.fillStyle='rgba(88,166,255,.8)'; ctx.fill();
+    }
+  }
+
+  drawMini();
+}
+
+function drawMini(){
+  const MW=130,MH=90; miniC.width=MW; miniC.height=MH;
+  const ms=Math.min(MW/(XMAX-XMIN),MH/(YMAX-YMIN));
+  const mwx2=x=>(x-XMIN)*ms, mwy2=y=>(YMAX-y)*ms;
+  mCtx.fillStyle='#0d1117'; mCtx.fillRect(0,0,MW,MH);
+  for(const w of walls){
+    mCtx.save(); mCtx.translate(mwx2(w.lx),mwy2(w.ly)); mCtx.rotate(-w.ang);
+    mCtx.fillStyle='#8b949e'; mCtx.fillRect(-w.len*ms/2,-w.thick*ms/2,w.len*ms,w.thick*ms);
+    mCtx.restore();
+  }
+  if(trail.length>1){
+    mCtx.beginPath(); mCtx.moveTo(mwx2(trail[0].x),mwy2(trail[0].y));
+    for(let i=1;i<trail.length;i++) mCtx.lineTo(mwx2(trail[i].x),mwy2(trail[i].y));
+    mCtx.strokeStyle='rgba(188,140,255,.4)'; mCtx.lineWidth=1; mCtx.stroke();
+  }
+  waypoints.forEach((wp,i)=>{
+    mCtx.beginPath(); mCtx.arc(mwx2(wp.x),mwy2(wp.y),3,0,Math.PI*2);
+    mCtx.fillStyle=i===0?'#3fb950':'#58a6ff'; mCtx.fill();
+  });
+  mCtx.beginPath(); mCtx.arc(mwx2(robotX),mwy2(robotY),4,0,Math.PI*2);
+  mCtx.fillStyle='#bc8cff'; mCtx.fill();
+  mCtx.strokeStyle='#fff'; mCtx.lineWidth=1; mCtx.stroke();
+  // viewport rect
+  const W2=mapArea.clientWidth, H2=mapArea.clientHeight;
+  mCtx.strokeStyle='rgba(88,166,255,.6)'; mCtx.lineWidth=1;
+  mCtx.strokeRect(
+    mwx2(cxToWorld(0)),
+    mwy2(cyToWorld(0))-(H2/SCALE)*ms,
+    (W2/SCALE)*ms,(H2/SCALE)*ms
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// CONTROLS
+// ════════════════════════════════════════════════════════════════════════
+function toggleAuto(){
+  patrolMode=false; document.getElementById('btn-patrol').classList.remove('active');
+  autoMode=!autoMode;
+  document.getElementById('btn-auto').classList.toggle('active',autoMode);
+  if(autoMode){
+    if(!waypoints.length){
+      showToast('เพิ่ม Waypoint ก่อน — คลิกบนแผนที่');
+      autoMode=false;
+      document.getElementById('btn-auto').classList.remove('active');
+      return;
+    }
+    currentPath=null; pathIdx=0;
+    const mode=rosConnected&&document.getElementById('send-goal').checked?'ROS Nav2':'SIM A*';
+    robotState='Moving';
+    setStatus('Auto Walk ['+mode+']','#3fb950',true);
+    appendLog(`เริ่ม Auto Walk — mode: ${mode} — ${waypoints.length} จุด`,'ok');
+    startLoop();
+  } else {
+    robotState='Idle'; currentPath=null;
+    setStatus('หยุด','#8b949e',false);
+    appendLog('หยุด Auto Walk','warn');
+  }
+}
+
+function togglePatrol(){
+  autoMode=false; document.getElementById('btn-auto').classList.remove('active');
+  patrolMode=!patrolMode;
+  document.getElementById('btn-patrol').classList.toggle('active',patrolMode);
+  if(patrolMode){
+    if(!waypoints.length){
+      showToast('เพิ่ม Waypoint ก่อน — คลิกบนแผนที่');
+      patrolMode=false;
+      document.getElementById('btn-patrol').classList.remove('active');
+      return;
+    }
+    currentPath=null; pathIdx=0;
+    const mode=rosConnected&&document.getElementById('send-goal').checked?'ROS Nav2':'SIM A*';
+    robotState='Patrolling';
+    setStatus('Patrol ['+mode+']','#f0883e',true);
+    appendLog(`เริ่ม Patrol — mode: ${mode} — ${waypoints.length} จุด วนซ้ำ`,'ok');
+    startLoop();
+  } else {
+    robotState='Idle'; currentPath=null;
+    setStatus('หยุด','#8b949e',false);
+    appendLog('หยุด Patrol','warn');
+  }
+}
+
+function stopRobot(){
+  autoMode=false; patrolMode=false;
+  nav2GoalSent=false;
+  arrivalStableCount=0;
+  goalSentTime=0;
+  document.getElementById('btn-auto').classList.remove('active');
+  document.getElementById('btn-patrol').classList.remove('active');
+  robotState='Idle'; currentPath=null; nav2Path=[]; ppPathIdx=0;
+  setStatus('หยุด','#8b949e',false); appendLog('หยุด','warn');
+  document.getElementById('progress-fill').style.width='0%';
+  if(animFrame){cancelAnimationFrame(animFrame);animFrame=null;}
+  draw();
+}
+
+function startLoop(){if(!animFrame){lastTime=null;animFrame=requestAnimationFrame(animate);}}
+
+function onSpeedSlider(el){
+  robotSpeed=parseFloat(el.value);
+  document.getElementById('speed-lbl').textContent=el.value+' m/s';
+}
+
+// ── WAYPOINT MANAGEMENT ───────────────────────────────────────────────
+function addWaypoint(x,y,src='manual'){
+  waypoints.push({x,y,src});
+  appendLog(`จุด #${waypoints.length} (${x.toFixed(2)},${y.toFixed(2)}) [${src}]`,'info');
+  updateWpList(); startLoop();
+}
+
+function clearWaypoints(){
+  waypoints=[]; currentPath=null;
+  updateWpList(); appendLog('ล้างจุดหมาย','warn');
+}
+
+function reverseWaypoints(){
+  waypoints.reverse(); currentPath=null;
+  updateWpList(); appendLog('สลับลำดับ waypoints','info');
+}
+
+function addPreset(){
+  clearWaypoints();
+  [{x:1.0,y:0.5},{x:-2.0,y:0.5},{x:-5.5,y:0.5},{x:-5.5,y:2.5},
+   {x:-2.0,y:3.5},{x:1.0,y:3.5},{x:3.5,y:1.5},{x:7.0,y:0.5},
+   {x:9.5,y:0.5},{x:9.5,y:3.5},{x:6.5,y:4.5},{x:MODEL_OX,y:MODEL_OY}
+  ].forEach(p=>waypoints.push({...p,src:'preset'}));
+  appendLog('Preset tour โหลดแล้ว (12 จุด)','ok'); updateWpList();
+}
+
+function removeWP(i){
+  waypoints.splice(i,1); currentPath=null;
+  updateWpList(); appendLog(`ลบจุด #${i+1}`,'warn');
+}
+
+function updateWpList(){
+  const el=document.getElementById('wp-list');
+  document.getElementById('wp-count').textContent=`(${waypoints.length})`;
+  if(!waypoints.length){
+    el.innerHTML='<div style="color:var(--muted);font-size:11px">ว่าง — คลิกแผนที่เพื่อเพิ่ม</div>';
+    return;
+  }
+  el.innerHTML=waypoints.map((wp,i)=>`
+    <div class="wp-item ${i===0?'wp-act':''}">
+      <span class="wp-num">${i+1}</span>
+      <span class="wp-xy">(${wp.x.toFixed(1)},${wp.y.toFixed(1)})</span>
+      <span class="wp-src ${wp.src==='ros'?'wp-ros':'wp-manual'}">${wp.src}</span>
+      <span class="wp-del" onclick="removeWP(${i})">✕</span>
+    </div>`).join('');
+}
+
+// ── RIGHT-CLICK CONTEXT MENU ──────────────────────────────────────────
+let ctxX=0, ctxY=0;
+const ctxMenu=document.getElementById('ctx-menu');
+
+mapArea.addEventListener('contextmenu',e=>{
+  e.preventDefault();
+  const r=mapArea.getBoundingClientRect();
+  ctxX=cxToWorld(e.clientX-r.left);
+  ctxY=cyToWorld(e.clientY-r.top);
+  document.getElementById('ctx-add').textContent=`📍 เพิ่ม Waypoint (${ctxX.toFixed(1)}, ${ctxY.toFixed(1)})`;
+  document.getElementById('ctx-goto').textContent=`🎯 Go To (${ctxX.toFixed(1)}, ${ctxY.toFixed(1)})`;
+  ctxMenu.style.display='block';
+  const mx=Math.min(e.clientX,window.innerWidth-180);
+  const my=Math.min(e.clientY,window.innerHeight-160);
+  ctxMenu.style.left=mx+'px'; ctxMenu.style.top=my+'px';
+});
+
+document.addEventListener('click',()=>{ ctxMenu.style.display='none'; });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') ctxMenu.style.display='none'; });
+
+function goToPoint(x,y){
+  // reset flag ก่อนเสมอ เพื่อให้ส่ง goal ใหม่ได้
+  nav2GoalSent=false;
+  waypoints=[{x,y,src:'click'}];
+  currentPath=null;
+  updateWpList();
+
+  if(useNav2Mode()){
+    autoMode=true;
+    patrolMode=false;
+    document.getElementById('btn-auto').classList.add('active');
+    document.getElementById('btn-patrol').classList.remove('active');
+    sendNav2Goal(x,y);   // ส่งครั้งเดียว ไม่วน loop
+    startLoop();         // loop แค่เพื่อ draw (ไม่ stepRobotNav2 แล้ว)
+    showToast(`🎯 Nav2 → (${x.toFixed(2)}, ${y.toFixed(2)})`);
+  } else {
+    autoMode=true;
+    patrolMode=false;
+    document.getElementById('btn-auto').classList.add('active');
+    document.getElementById('btn-patrol').classList.remove('active');
+    robotState='Moving';
+    setStatus('กำลังเดิน... [SIM]','#3fb950',true);
+    startLoop();
+    showToast(`🚶 SIM → (${x.toFixed(2)}, ${y.toFixed(2)})`);
+  }
+}
+
+function ctxAddWaypoint(){
+  addWaypoint(ctxX,ctxY,'manual');
+  showToast(`📍 เพิ่ม waypoint (${ctxX.toFixed(2)}, ${ctxY.toFixed(2)})`);
+}
+
+function ctxGoTo(){
+  goToPoint(ctxX,ctxY);
+}
+function ctxSetOrigin(){
+  robotX=ctxX; robotY=ctxY; robotH=0;
+  trail.length=0;
+  appendLog(`ตั้งตำแหน่งหุ่น → (${ctxX.toFixed(2)},${ctxY.toFixed(2)})`,'info');
+  draw();
+}
+
+// ── STATUS / LOG ──────────────────────────────────────────────────────
+function setStatus(txt,color,blinking){
+  document.getElementById('stxt').textContent=txt;
+  const dot=document.getElementById('sdot');
+  dot.style.background=color;
+  dot.classList.toggle('blink',blinking);
+}
+
+function appendLog(msg,type='info'){
+  const el=document.getElementById('log');
+  const d=document.createElement('div'); d.className='log-'+type;
+  const t=new Date().toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  d.textContent='['+t+'] '+msg; el.appendChild(d); el.scrollTop=el.scrollHeight;
+  while(el.children.length>60) el.removeChild(el.firstChild);
+}
+
+let toastTimer=null;
+function showToast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>t.classList.remove('show'),2200);
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// PAN / ZOOM / MOUSE / KEYBOARD
+// ════════════════════════════════════════════════════════════════════════
+function fitView(){
+  const W2=mapArea.clientWidth, H2=mapArea.clientHeight;
+  const sx=(W2-60)/(XMAX-XMIN), sy=(H2-60)/(YMAX-YMIN);
+  SCALE=Math.min(sx,sy); panX=30; panY=30;
+  document.getElementById('zoom-sl').value=Math.round(SCALE);
+  document.getElementById('zoom-lbl').textContent=Math.round(SCALE); draw();
+}
+
+function changeZoom(f){
+  const cx2=mapArea.clientWidth/2, cy2=mapArea.clientHeight/2;
+  const bx=cxToWorld(cx2), by=cyToWorld(cy2);
+  SCALE=Math.max(6,Math.min(100,SCALE*f));
+  panX=cx2-(bx-XMIN)*SCALE; panY=cy2-(YMAX-by)*SCALE;
+  document.getElementById('zoom-sl').value=Math.round(SCALE);
+  document.getElementById('zoom-lbl').textContent=Math.round(SCALE); draw();
+}
+
+function onZoomSlider(el){
+  const cx2=mapArea.clientWidth/2, cy2=mapArea.clientHeight/2;
+  const bx=cxToWorld(cx2), by=cyToWorld(cy2);
+  SCALE=parseInt(el.value); document.getElementById('zoom-lbl').textContent=el.value;
+  panX=cx2-(bx-XMIN)*SCALE; panY=cy2-(YMAX-by)*SCALE; draw();
+}
+
+mapArea.addEventListener('mousedown',e=>{
+  if(e.button!==0)return;
+  dragging=true; dragSX=e.clientX; dragSY=e.clientY; dragPX=panX; dragPY=panY;
+  mapArea.classList.add('grabbing');
+});
+
+window.addEventListener('mouseup',e=>{
+  if(dragging&&e.button===0){
+    const moved=Math.hypot(e.clientX-dragSX,e.clientY-dragSY);
+    if(moved<6){
+      const r=mapArea.getBoundingClientRect();
+      const tx=cxToWorld(e.clientX-r.left), ty=cyToWorld(e.clientY-r.top);
+      goToPoint(tx,ty);
+    } else { followRobot=false; }
+  }
+  dragging=false; mapArea.classList.remove('grabbing');
+});
+
+window.addEventListener('mousemove',e=>{
+  if(dragging){ panX=dragPX+(e.clientX-dragSX); panY=dragPY+(e.clientY-dragSY); }
+  const r=mapArea.getBoundingClientRect();
+  const wx2=cxToWorld(e.clientX-r.left), wy2=cyToWorld(e.clientY-r.top);
+  document.getElementById('coords').textContent=`x:${wx2.toFixed(3)}  y:${wy2.toFixed(3)} m`;
+});
+
+mapArea.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const r=mapArea.getBoundingClientRect();
+  const bx=cxToWorld(e.clientX-r.left), by=cyToWorld(e.clientY-r.top);
+  const f=e.deltaY<0?1.12:.89; SCALE=Math.max(6,Math.min(100,SCALE*f));
+  panX=(e.clientX-r.left)-(bx-XMIN)*SCALE; panY=(e.clientY-r.top)-(YMAX-by)*SCALE;
+  document.getElementById('zoom-sl').value=Math.round(SCALE);
+  document.getElementById('zoom-lbl').textContent=Math.round(SCALE); draw();
+},{passive:false});
+
+// Keyboard shortcuts
+window.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT')return;
+  if(e.key===' '||e.key==='f'){e.preventDefault();fitView();followRobot=true;}
+  if(e.key==='c'||e.key==='C') clearWaypoints();
+  if(e.key==='s'||e.key==='S') stopRobot();
+  if(e.key==='p'||e.key==='P') togglePatrol();
+  if(e.key==='a'||e.key==='A') toggleAuto();
+  if(e.key==='+'||e.key==='='){ changeZoom(1.15); }
+  if(e.key==='-'){ changeZoom(1/1.15); }
+});
+
+// Layer toggles → redraw
+['sw','sp','so','sph','str','sg','socc'].forEach(id=>
+  document.getElementById(id).addEventListener('change',draw)
+);
+window.addEventListener('resize',()=>draw());
+
+// ════════════════════════════════════════════════════════════════════════
+// 🧠 ROBOT AI BRAIN — ตัดสินใจเอง วางแผน patrol หลบสิ่งกีดขวาง
+// ════════════════════════════════════════════════════════════════════════
+const aiHistory=[];
+let autoBrainOn=false;
+let autoBrainTimer=null;
+let autoBrainCountdown=30;
+let lastGoalFailTime=0;
+let consecutiveFailCount=0;
+let anthropicApiKey=''; // unused, kept for compat
+
+function saveApiKey(){} // unused
+
+function getOllamaUrl(){ return document.getElementById('ollama-url').value.trim(); }
+function getOllamaModel(){ return document.getElementById('ollama-model').value.trim()||'llama3.2'; }
+function sanitizeAIReply(text){
+  if(!text) return '';
+  text=text.substring(0,400);
+  const m=text.match(/(.{5,30}){3,}/);
+  if(m) text=text.substring(0,text.indexOf(m[0]));
+  return text.trim()||'[no response]';
+}
+
+// ── sanitize: cut loops and cap length ──────────────────────────────
+function sanitizeAIReply(text){
+  if(!text) return '';
+  text=text.substring(0,400);
+  const loopMatch=text.match(/(.{5,30})1{3,}/);
+  if(loopMatch) text=text.substring(0,text.indexOf(loopMatch[0]));
+  return text.trim()||'[no valid response]';
+}
+
+async function testOllama(){
+  document.getElementById('ai-status').textContent='⏳ ทดสอบ...';
+  try{
+    const res=await fetch(`${getOllamaUrl()}/api/tags`);
+    const data=await res.json();
+    const models=data.models?.map(m=>m.name).join(', ')||'ไม่มี';
+    document.getElementById('ai-status').textContent='✓ เชื่อม';
+    appendLog(`Ollama OK — models: ${models}`,'ok');
+    showToast(`✅ Ollama: ${models}`);
+    // auto-fill model ตัวแรก
+    if(data.models?.length>0){
+      document.getElementById('ollama-model').value=data.models[0].name;
+    }
+  }catch(e){
+    document.getElementById('ai-status').textContent='❌ เชื่อมไม่ได้';
+    appendLog('Ollama error: '+e.message,'err');
+    showToast('❌ '+e.message);
+  }
+}
+
+async function callOllama(systemPrompt, userPrompt){
+  const res=await fetch(`${getOllamaUrl()}/api/chat`,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      model:getOllamaModel(),
+      stream:false,
+      options:{
+        num_predict:120,
+        temperature:0.1,
+        repeat_penalty:1.8,
+        stop:['\n\n','###','---','ครับ','ค่ะ']
+      },
+      messages:[
+        {role:'system', content:systemPrompt},
+        {role:'user',   content:userPrompt}
+      ]
+    })
+  });
+  if(!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data=await res.json();
+  return data.message?.content||'';
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// NAV DECISION ENGINE
+// ════════════════════════════════════════════════════════════════════════
+
+// ── LIDAR → 4-direction distances (from real /f_scan + /b_scan) ──────
+function getLidarDistances(){
+  const all=[...lidarPointsF,...lidarPointsB];
+  const d={front:99,back:99,left:99,right:99}; // 99=no obstacle detected
+  for(const p of all){
+    const dx=p.x-robotX, dy=p.y-robotY;
+    const dist=Math.hypot(dx,dy);
+    if(dist<0.1||dist>6) continue; // ignore noise & far
+    let ang=Math.atan2(dy,dx)-robotH; // relative to heading
+    while(ang>Math.PI) ang-=2*Math.PI;
+    while(ang<-Math.PI) ang+=2*Math.PI;
+    const deg=ang*180/Math.PI;
+    if(deg>=-45&&deg<45){ if(dist<d.front) d.front=dist; }
+    else if(deg>=45&&deg<135){ if(dist<d.left) d.left=dist; }
+    else if(deg<=-45&&deg>-135){ if(dist<d.right) d.right=dist; }
+    else { if(dist<d.back) d.back=dist; }
+  }
+  return d;
+}
+
+// ── Update compass arcs based on distances ───────────────────────────
+const NC_MAX=5; // max display distance
+function updateNavCompass(d){
+  const arcs={front:'nca-front',back:'nca-back',left:'nca-left',right:'nca-right'};
+  Object.entries(arcs).forEach(([dir,id])=>{
+    const v=d[dir]; const norm=Math.min(v,NC_MAX)/NC_MAX;
+    const el=document.getElementById(id);
+    if(!el) return;
+    el.setAttribute('stroke', norm>0.3?'#3fb950':norm>0.15?'#f0883e':'#f85149');
+    el.setAttribute('opacity', 0.3+norm*0.65);
+  });
+}
+
+// ── Rule-based nav decision ──────────────────────────────────────────
+const NEAR=0.5, MID=1.0;
+function ruleNavDecide(d){
+  const{front,back,left,right}=d;
+  if(front>MID){
+    return{cmd:'FORWARD',reason:`หน้าโล่ง ${front.toFixed(1)}m`,conf:Math.min(98,Math.round(front/NC_MAX*100)),ang:0};
+  }
+  if(front<=NEAR){
+    if(left<=MID&&right<=MID){
+      if(back>MID) return{cmd:'REVERSE',reason:`ทุกทิศปิด→ถอย ${back.toFixed(1)}m`,conf:85,ang:180};
+      return{cmd:'ROTATE_LEFT',reason:'ปิดหมด→หมุนหาทาง',conf:70,ang:270};
+    }
+    if(left>right) return{cmd:'TURN_LEFT',reason:`ซ้ายโล่ง ${left.toFixed(1)}m`,conf:82,ang:315};
+    return{cmd:'TURN_RIGHT',reason:`ขวาโล่ง ${right.toFixed(1)}m`,conf:82,ang:45};
+  }
+  // mid range
+  if(left>right) return{cmd:'TURN_LEFT',reason:`เตรียมเลี้ยว ${front.toFixed(1)}m`,conf:62,ang:315};
+  return{cmd:'TURN_RIGHT',reason:`เตรียมเลี้ยว ${front.toFixed(1)}m`,conf:62,ang:45};
+}
+
+// ── CMD meta (icon + color + compass arrow angle) ────────────────────
+const NAV_META={
+  FORWARD:     {icon:'↑',color:'var(--green)',ang:0},
+  TURN_LEFT:   {icon:'↰',color:'var(--accent)',ang:315},
+  TURN_RIGHT:  {icon:'↱',color:'var(--accent)',ang:45},
+  REVERSE:     {icon:'↓',color:'var(--warn)',ang:180},
+  ROTATE_LEFT: {icon:'↺',color:'#ffd700',ang:270},
+  ROTATE_RIGHT:{icon:'↻',color:'#ffd700',ang:90},
+  STRAFE_L:    {icon:'↙',color:'var(--accent)',ang:270},
+  STRAFE_R:    {icon:'↘',color:'var(--accent)',ang:90},
+  STOP:        {icon:'■',color:'var(--danger)',ang:0},
+  STANDBY:     {icon:'⏸',color:'var(--muted)',ang:0},
+};
+
+// ── Update decision display ──────────────────────────────────────────
+function setNavDecision(cmd,reason,conf){
+  const meta=NAV_META[cmd]||NAV_META.STANDBY;
+  const cmdEl=document.getElementById('nc-cmd');
+  const reasonEl=document.getElementById('nc-reason');
+  const iconEl=document.getElementById('nc-icon');
+  const confEl=document.getElementById('nc-conf');
+  const arrowEl=document.getElementById('nca-arrow');
+  if(cmdEl){ cmdEl.textContent=cmd.replace('_',' '); cmdEl.style.color=meta.color; }
+  if(reasonEl) reasonEl.textContent=reason;
+  if(iconEl) iconEl.textContent=meta.icon;
+  if(confEl) confEl.style.width=conf+'%';
+  if(arrowEl) arrowEl.setAttribute('transform',`rotate(${meta.ang},55,55)`);
+  // highlight D-pad
+  document.querySelectorAll('.ndpad .btn').forEach(b=>b.classList.remove('nav-lit'));
+  const padMap={FORWARD:'npb-fwd',REVERSE:'npb-rev',TURN_LEFT:'npb-left',TURN_RIGHT:'npb-right'};
+  if(padMap[cmd]){ const b=document.getElementById(padMap[cmd]); if(b) b.classList.add('nav-lit'); }
+}
+
+// ── Manual nav command from D-pad ───────────────────────────────────
+let navManualTimer=null;
+function navManual(cmd){
+  // publish cmd_vel
+  const lin=0.5, ang=0.5;
+  const velMap={
+    FORWARD:     [lin,0],
+    REVERSE:     [-lin,0],
+    TURN_LEFT:   [lin*0.5, ang],
+    TURN_RIGHT:  [lin*0.5,-ang],
+    ROTATE_LEFT: [0, ang],
+    ROTATE_RIGHT:[0,-ang],
+    STRAFE_L:    [0, ang*0.5],
+    STRAFE_R:    [0,-ang*0.5],
+    STOP:        [0,0],
+  };
+  const[lx,az]=velMap[cmd]||[0,0];
+  publishCmdVel(lx,az);
+  setNavDecision(cmd,'Manual D-pad',100);
+  // flash pad button green
+  document.querySelectorAll('.ndpad .btn').forEach(b=>b.classList.remove('nav-cmd'));
+  const padMap={FORWARD:'npb-fwd',REVERSE:'npb-rev',TURN_LEFT:'npb-left',TURN_RIGHT:'npb-right'};
+  if(padMap[cmd]){ const b=document.getElementById(padMap[cmd]); if(b){ b.classList.add('nav-cmd'); setTimeout(()=>b.classList.remove('nav-cmd'),600); } }
+  appendLog(`D-pad: ${cmd} → cmd_vel(${lx.toFixed(1)},${az.toFixed(1)})`,'ros');
+}
+
+// ── Run nav decision (rule or AI) ────────────────────────────────────
+async function runNavDecide(fromButton=false){
+  const mode=document.getElementById('nav-dec-mode')?.value||'rule';
+  if(mode==='manual') return;
+
+  const d=getLidarDistances();
+  updateNavCompass(d);
+
+  if(mode==='rule'||!rosConnected){
+    const r=ruleNavDecide(d);
+    setNavDecision(r.cmd,r.reason,r.conf);
+    if(fromButton) appendLog(`[NavRule] ${r.cmd}: ${r.reason}`,'ros');
+    return;
+  }
+
+  // AI mode
+  if(fromButton) appendLog('[NavAI] Sending LIDAR context to Ollama...','info');
+  document.getElementById('nc-status').textContent='⏳ AI...';
+  try{
+    const prompt=
+`You are a MiR100 ROS2 navigation system.
+LIDAR distances (meters):
+front=${d.front.toFixed(2)} back=${d.back.toFixed(2)} left=${d.left.toFixed(2)} right=${d.right.toFixed(2)}
+Danger:<0.5m Caution:<1.0m
+Respond with EXACTLY this format on one line, nothing else:
+CMD|reason
+Valid CMD values: FORWARD REVERSE TURN_LEFT TURN_RIGHT ROTATE_LEFT ROTATE_RIGHT STOP
+Example: FORWARD|path clear 2.1m`;
+    const reply=await callOllama('MiR100 nav', prompt);
+    // robust parser — handles CMD|reason, CMD:reason, plain CMD, "Rationale:" garbage
+    const _clean=reply.substring(0,300).replace(/(.{5,30})\1{3,}/g,'').trim();
+    const firstLine=_clean.split('\n')[0].trim();
+    const parts=firstLine.split(/[|:]/);
+    const rawCmd=parts[0].trim().toUpperCase().replace(/[^A-Z_]/g,'');
+    const reason=(parts[1]||'').trim().substring(0,60)||'ok';
+    const valid=Object.keys(NAV_META);
+    const finalCmd=valid.includes(rawCmd)?rawCmd:ruleNavDecide(d).cmd;
+    setNavDecision(finalCmd,`AI: ${reason}`,88);
+    document.getElementById('nc-status').textContent='✓ AI';
+    appendLog(`[NavAI] ${finalCmd}: ${reason}`,'ros');
+  }catch(e){
+    document.getElementById('nc-status').textContent='❌';
+    const r=ruleNavDecide(d);
+    setNavDecision(r.cmd,`[fallback] ${r.reason}`,r.conf);
+    appendLog(`NavAI error: ${e.message} → fallback Rule`,'warn');
+  }
+}
+
+// ── Hook: update compass whenever lidar refreshes ───────────────────
+function onLidarUpdate(){
+  const mode=document.getElementById('nav-dec-mode')?.value||'rule';
+  if(mode==='rule'){
+    const d=getLidarDistances();
+    updateNavCompass(d);
+    // auto update decision in rule mode
+    const r=ruleNavDecide(d);
+    setNavDecision(r.cmd,r.reason,r.conf);
+  }
+}
+
+
+function getRobotContext(){
+  // nearest LIDAR obstacle (from real scan points)
+  const allPts=[...lidarPointsF,...lidarPointsB];
+  let nearestDist=99, nearestDir='none';
+  for(const p of allPts){
+    const d=Math.hypot(p.x-robotX,p.y-robotY);
+    if(d<nearestDist){
+      nearestDist=d;
+      const ang=(Math.atan2(p.y-robotY,p.x-robotX)-robotH)*180/Math.PI;
+      nearestDir=ang>-45&&ang<45?'front':ang>45&&ang<135?'left':ang<-45&&ang>-135?'right':'back';
+    }
+  }
+  const hasLidar=allPts.length>0;
+  const nearStr=hasLidar&&nearestDist<99?nearestDist.toFixed(2)+'m '+nearestDir:'no data';
+
+  return `=== ROBOT ===
+pos: X=${robotX.toFixed(2)} Y=${robotY.toFixed(2)} heading=${(robotH*180/Math.PI).toFixed(1)}deg
+state: ${robotState} | auto:${autoMode} | patrol:${patrolMode} | ROS:${rosConnected}
+waypoints(${waypoints.length}): ${waypoints.slice(0,3).map((w,i)=>`#${i+1}(${w.x.toFixed(1)},${w.y.toFixed(1)})`).join(' ')}
+goalFails: ${consecutiveFailCount}
+
+=== LIDAR ===
+lidar_connected: ${hasLidar}
+front_pts=${lidarPointsF.length} back_pts=${lidarPointsB.length}
+nearest_obstacle: ${nearStr}`;
+}
+
+// ── AI Brain ตัดสินใจอัตโนมัติทุก 10 วินาที ──────────────────────────
+function toggleAutoBrain(){
+  autoBrainOn=document.getElementById('ai-auto').checked;
+  const statusEl=document.getElementById('ai-brain-status');
+  if(autoBrainOn){
+    statusEl.style.display='block';
+    // ล้าง error bubble เก่า
+    document.getElementById('ai-chat').innerHTML='';
+    appendLog('🧠 Auto Brain เปิด — เริ่มใน 10s','ros');
+    runAutoBrain();
+  } else {
+    statusEl.style.display='none';
+    clearTimeout(autoBrainTimer);
+    appendLog('🧠 Auto Brain ปิด','warn');
+  }
+}
+
+function runAutoBrain(){
+  if(!autoBrainOn) return;
+  autoBrainCountdown=30;
+  const cdEl=document.getElementById('ai-countdown');
+  if(cdEl) cdEl.textContent=autoBrainCountdown;
+
+  const tick=setInterval(()=>{
+    autoBrainCountdown--;
+    if(cdEl) cdEl.textContent=autoBrainCountdown;
+    if(autoBrainCountdown<=0) clearInterval(tick);
+  },1000);
+
+  autoBrainTimer=setTimeout(()=>{
+    if(!autoBrainOn) return;
+    ruleBrain();       // pure rule-based — no AI call
+    runAutoBrain();
+  },30000);
+}
+
+// ── Rule-based Brain: no Ollama, no hallucination ────────────────────
+function ruleBrain(){
+  const d=getLidarDistances();
+  updateNavCompass(d);
+
+  // update nav compass
+  const navMode=document.getElementById('nav-dec-mode')?.value||'rule';
+  if(navMode==='rule'){ const r=ruleNavDecide(d); setNavDecision(r.cmd,r.reason,r.conf); }
+
+  const hasLidar=[...lidarPointsF,...lidarPointsB].length>0;
+  const nearFront=hasLidar && d.front<0.8;
+
+  // Rule 1: obstacle ahead → STOP
+  if(nearFront){
+    appendLog(`[Brain] Obstacle ${d.front.toFixed(2)}m ahead → STOP`,'err');
+    addAIBubble(`⚠ Obstacle ${d.front.toFixed(2)}m ahead — stopping.`,'bot');
+    stopRobot(); return;
+  }
+
+  // Rule 2: too many goal fails → STOP + clear waypoints
+  if(consecutiveFailCount>=3){
+    appendLog(`[Brain] goalFails=${consecutiveFailCount} → STOP & clear waypoints`,'err');
+    addAIBubble(`❌ ${consecutiveFailCount} goal fails — stopped. Add new waypoints manually.`,'bot');
+    consecutiveFailCount=0;
+    stopRobot(); return;
+  }
+
+  // Rule 3: patrol running normally → report only
+  if(patrolMode && waypoints.length>0){
+    const wp=waypoints[0];
+    const dist=Math.hypot(robotX-wp.x,robotY-wp.y);
+    document.getElementById('ai-status').textContent='✓ patrol ok';
+    appendLog(`[Brain] Patrol OK — next wp #1 dist=${dist.toFixed(2)}m`,'ros');
+    addAIBubble(`✓ Patrol running. Next: (${wp.x.toFixed(1)},${wp.y.toFixed(1)}) ${dist.toFixed(1)}m away.`,'bot');
+    return;
+  }
+
+  // Rule 4: idle, no waypoints → load preset patrol
+  if(!autoMode && !patrolMode && waypoints.length===0){
+    appendLog('[Brain] Idle, no waypoints → loading preset patrol','warn');
+    addAIBubble('Robot idle, no waypoints — loading preset patrol route.','bot');
+    quickPatrolPlan();
+    togglePatrol();
+    return;
+  }
+
+  // Rule 5: auto walk active
+  if(autoMode && waypoints.length>0){
+    const wp=waypoints[0];
+    const dist=Math.hypot(robotX-wp.x,robotY-wp.y);
+    document.getElementById('ai-status').textContent='✓ auto ok';
+    appendLog(`[Brain] Auto walk OK — next wp dist=${dist.toFixed(2)}m`,'ros');
+    return;
+  }
+
+  document.getElementById('ai-status').textContent='✓ ready';
+}
+
+// callAIBrain is now used only by manual sendAI — not auto brain
+async function callAIBrain(){
+  // kept for compat — ruleBrain() replaces this in auto mode
+  ruleBrain();
+}
+
+// ── execute คำสั่งจาก AI ─────────────────────────────────────────────
+function executeAIDecision(reply, isAuto=false){
+  if(!reply) return;
+  const prefix=isAuto?'[Brain] ':'[AI] ';
+  addAIBubble(reply, 'bot');
+  appendLog(prefix+reply.slice(0,80),'ros');
+
+  // [GOTO:x,y]
+  const gotoMatch=reply.match(/\[GOTO:([-\d.]+),([-\d.]+)\]/);
+  if(gotoMatch){
+    const gx=parseFloat(gotoMatch[1]), gy=parseFloat(gotoMatch[2]);
+    appendLog(`${prefix}Go To (${gx.toFixed(2)},${gy.toFixed(2)})`,'ros');
+    goToPoint(gx,gy);
+  }
+
+  // [WAYPOINTS:x1,y1;x2,y2;...]
+  const wpMatch=reply.match(/\[WAYPOINTS:([^\]]+)\]/);
+  if(wpMatch){
+    const pts=wpMatch[1].split(';').map(s=>{
+      const[x,y]=s.split(',').map(Number);
+      return{x,y,src:'ai'};
+    }).filter(p=>!isNaN(p.x)&&!isNaN(p.y));
+    if(pts.length>0){
+      waypoints=pts;
+      updateWpList();
+      consecutiveFailCount=0;
+      appendLog(`${prefix}วาง ${pts.length} waypoints จาก AI`,'ros');
+      if(!patrolMode) togglePatrol();
+    }
+  }
+
+  // [STOP]
+  if(reply.includes('[STOP]')){
+    appendLog(`${prefix}STOP`,'err');
+    stopRobot();
+  }
+
+  // [PATROL]
+  if(reply.includes('[PATROL]')&&!patrolMode&&waypoints.length>0){
+    appendLog(`${prefix}เริ่ม Patrol`,'ros');
+    togglePatrol();
+  }
+}
+
+// ── ตรวจ goal fail แล้วแจ้ง AI ──────────────────────────────────────
+function reportGoalFail(){
+  consecutiveFailCount++;
+  appendLog(`Goal fail #${consecutiveFailCount}`,'err');
+  if(autoBrainOn){
+    addAIBubble(`⚠ Goal fail #${consecutiveFailCount} — rule brain evaluating...`,'bot','thinking');
+    ruleBrain();  // rule-based only, no AI hallucination
+  }
+}
+
+// ── Manual chat ───────────────────────────────────────────────────────
+function addAIBubble(text, role, extra=''){
+  const chat=document.getElementById('ai-chat');
+  const d=document.createElement('div');
+  d.className=`ai-bubble ${role==='user'?'ai-user':'ai-bot'} ${extra}`;
+  d.textContent=text;
+  chat.appendChild(d);
+  chat.scrollTop=chat.scrollHeight;
+  return d;
+}
+
+async function sendAI(){
+  const input=document.getElementById('ai-input');
+  const userMsg=input.value.trim();
+  if(!userMsg) return;
+  input.value='';
+
+  addAIBubble(userMsg,'user');
+  const thinkBubble=addAIBubble('Thinking...','bot','thinking');
+  document.getElementById('ai-status').textContent='⏳ thinking...';
+
+  const ctx=getRobotContext();
+
+  try{
+    const reply=await callOllama(
+`You are a status reporter for a MiR100 ROS2 robot.
+Answer questions about robot state. Keep answers under 2 sentences.
+Do NOT generate waypoint coordinates or navigation commands.`,
+      `${userMsg}\n\n[Context]\n${ctx}`
+    );
+    thinkBubble.classList.remove('thinking');
+    thinkBubble.textContent=sanitizeAIReply(reply);
+    document.getElementById('ai-status').textContent='✓ ready';
+    // status only — no executeAIDecision to prevent hallucinated nav commands
+  }catch(err){
+    thinkBubble.className='ai-bubble ai-error';
+    thinkBubble.textContent='Error: '+err.message;
+    document.getElementById('ai-status').textContent='❌ error';
+  }
+}
+
+// ── Quick patrol: generate grid waypoints from map bounds — NO AI ────
+function quickPatrolPlan(){
+  clearWaypoints();
+  // generate a coverage grid within map bounds
+  const pts = [
+    {x:-5.5, y:0.5}, {x:-5.5, y:2.5}, {x:-5.5, y:4.5},
+    {x:-2.0, y:0.5}, {x:-2.0, y:2.5}, {x:-2.0, y:4.5},
+    {x: 1.0, y:0.5}, {x: 1.0, y:2.5}, {x: 1.0, y:4.5},
+    {x: 4.0, y:0.5}, {x: 4.0, y:2.5},
+    {x: 7.0, y:0.5}, {x: 9.5, y:0.5}, {x: 9.5, y:3.5},
+    {x: MODEL_OX, y: MODEL_OY},
+  ];
+  pts.forEach(p => waypoints.push({...p, src:'patrol'}));
+  updateWpList();
+  appendLog(`Patrol plan: ${pts.length} waypoints generated from map bounds`,'ok');
+  showToast(`🗺 ${pts.length} patrol waypoints set`);
+  addAIBubble(`Patrol route set: ${pts.length} waypoints covering map bounds X=${XMIN}..${XMAX} Y=${YMIN}..${YMAX}. Use ⟳ Patrol to start.`,'bot');
+}
+
+function aiQuick(prompt){
+  document.getElementById('ai-input').value=prompt;
+  sendAI();
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// PURE PURSUIT AUTO EXECUTE
+// ════════════════════════════════════════════════════════════════════════
+let navAutoOn=false, navAutoTimer=null;
+const NAV_AUTO_HZ=10;
+const PP_LOOKAHEAD=0.5, PP_ARRIVE_R=0.3, PP_GOAL_R=0.4;
+
+function getNavSpeeds(){
+  const lin=parseFloat(document.getElementById('nav-spd-lin')?.value||0.3);
+  const ang=parseFloat(document.getElementById('nav-spd-ang')?.value||0.6);
+  return{lin,ang};
+}
+function cmdToVel(cmd){
+  const{lin,ang}=getNavSpeeds();
+  const map={FORWARD:[lin,0],REVERSE:[-lin,0],TURN_LEFT:[lin*0.4,ang],TURN_RIGHT:[lin*0.4,-ang],
+    ROTATE_LEFT:[0,ang],ROTATE_RIGHT:[0,-ang],STOP:[0,0],STANDBY:[0,0]};
+  return map[cmd]||[0,0];
+}
+function angleDiff(a,b){let d=a-b;while(d>Math.PI)d-=2*Math.PI;while(d<-Math.PI)d+=2*Math.PI;return d;}
+function getLookahead(){
+  if(!nav2Path.length)return null;
+  while(ppPathIdx<nav2Path.length-1&&Math.hypot(nav2Path[ppPathIdx].x-robotX,nav2Path[ppPathIdx].y-robotY)<PP_ARRIVE_R) ppPathIdx++;
+  for(let i=ppPathIdx;i<nav2Path.length;i++) if(Math.hypot(nav2Path[i].x-robotX,nav2Path[i].y-robotY)>=PP_LOOKAHEAD) return nav2Path[i];
+  return nav2Path[nav2Path.length-1];
+}
+function toggleNavAutoExec(){
+  navAutoOn=document.getElementById('nav-auto-exec').checked;
+  const warn=document.getElementById('nav-auto-warn');
+  if(navAutoOn){
+    if(!rosConnected){
+      document.getElementById('nav-auto-exec').checked=false; navAutoOn=false;
+      warn.textContent='⚠ เชื่อมต่อ ROS2 ก่อน'; warn.style.display='block';
+      setTimeout(()=>warn.style.display='none',3000); return;
+    }
+    document.getElementById('nav-auto-status').style.color='var(--green)';
+    document.getElementById('nav-auto-status').textContent='⚡ Auto Execute กำลังทำงาน';
+    appendLog('[NavAuto] เริ่ม','ok'); navAutoLoop();
+  } else {
+    clearTimeout(navAutoTimer); publishCmdVel(0,0);
+    document.getElementById('nav-auto-status').style.color='';
+    document.getElementById('nav-auto-status').textContent='ปิด';
+    appendLog('[NavAuto] หยุด','warn');
+  }
+}
+function navAutoLoop(){
+  if(!navAutoOn)return;
+  const st=document.getElementById('nav-auto-status');
+
+  // ── Safety check ทุก loop — LIDAR ก่อนเสมอ ──
+  const d=getLidarDistances();
+  updateNavCompass(d);
+  const hasLidar=[...lidarPointsF,...lidarPointsB].length>0;
+
+  // Emergency stop: obstacle หน้า < 0.4m
+  if(hasLidar && d.front < 0.4){
+    publishCmdVel(0,0);
+    if(st){st.style.color='var(--danger)';st.textContent=`🛑 obstacle ${d.front.toFixed(2)}m — STOP`;}
+    navAutoTimer=setTimeout(navAutoLoop,1000/NAV_AUTO_HZ);
+    return;
+  }
+
+  // Slow/evade: obstacle หน้า < 0.8m → ใช้ rule-based แทน
+  if(hasLidar && d.front < 0.8){
+    const r=ruleNavDecide(d); setNavDecision(r.cmd,r.reason,r.conf);
+    const[lx,az]=cmdToVel(r.cmd); publishCmdVel(lx,az);
+    if(st){st.style.color='var(--warn)';st.textContent=`⚠ ${d.front.toFixed(2)}m → ${r.cmd}`;}
+    navAutoTimer=setTimeout(navAutoLoop,1000/NAV_AUTO_HZ);
+    return;
+  }
+
+  // ── Pure Pursuit ──
+  if(nav2Path.length>1){
+    const goal=nav2Path[nav2Path.length-1];
+    if(Math.hypot(goal.x-robotX,goal.y-robotY)<PP_GOAL_R){
+      publishCmdVel(0,0); nav2Path=[]; ppPathIdx=0;
+      if(st){st.style.color='var(--green)';st.textContent='✅ ถึง goal';}
+    } else {
+      const lp=getLookahead();
+      if(lp){
+        const{lin,ang}=getNavSpeeds();
+        const tA=Math.atan2(lp.y-robotY,lp.x-robotX);
+        const err=angleDiff(tA,robotH);
+        const az=Math.max(-ang,Math.min(ang,1.8*err));
+        const sideFactor=Math.min(d.left,d.right)<0.5?0.5:1.0;
+        const lx=Math.abs(err)>1.0?0:lin*Math.max(0.1,1-Math.abs(err)/Math.PI)*sideFactor;
+        publishCmdVel(lx,az);
+        if(st){st.style.color='var(--cyan)';st.textContent=`🧭 PP err:${(err*180/Math.PI).toFixed(0)}° lin:${lx.toFixed(2)}`;}
+      }
+    }
+  // ── LIDAR reactive ──
+  } else {
+    const r=ruleNavDecide(d); setNavDecision(r.cmd,r.reason,r.conf);
+    const[lx,az]=cmdToVel(r.cmd); publishCmdVel(lx,az);
+    if(st){st.style.color='var(--accent)';st.textContent=`⚡ LIDAR: ${r.cmd}`;}
+  }
+  navAutoTimer=setTimeout(navAutoLoop,1000/NAV_AUTO_HZ);
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════════════════════════════════════
+appendLog('MAPT2 ROS2 Bridge v4 พร้อมใช้งาน ✓','ok');
+appendLog('เชื่อมต่อ rosbridge_websocket เพื่อใช้ ROS2','info');
+appendLog('/map = latched topic → รับครั้งเดียว dot เขียวค้างตลอด','ros');
+appendLog('TF warning "back_laser_link" → เกิดจาก timestamp sync ใน ROS2 ไม่ใช่ bug ของ bridge','warn');
+appendLog('[Space]=fit [C]=clear [S]=stop [P]=patrol [A]=auto','info');
+updateWpList(); fitView();
+</script>
+</body>
+</html>
