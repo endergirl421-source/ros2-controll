@@ -188,7 +188,7 @@ canvas{position:absolute;top:0;left:0;image-rendering:pixelated;}
   <div class="psec">
     <div class="plbl">เชื่อมต่อ rosbridge</div>
     <div class="conn-row">
-      <input class="conn-input" id="ws-url" value="ws://localhost:9090" placeholder="ws://IP:9090">
+      <input class="conn-input" id="ws-url" value="ws://klaadmin.tail1bd7aa.ts.net:9090" placeholder="ws://IP:9090">
       <button class="btn g" id="btn-connect" onclick="connectROS()">เชื่อม</button>
     </div>
     <div style="font-size:9px;color:var(--cyan);font-family:'Space Mono',monospace;line-height:1.9;margin-top:4px">
@@ -580,7 +580,6 @@ buildGrid();
 
 function astar(sx,sy,gx2,gy2){
   if(sx<0||sx>=GW||sy<0||sy>=GH||gx2<0||gx2>=GW||gy2<0||gy2>=GH)return null;
-  // snap goal off wall
   if(grid[gIdx(gx2,gy2)]===1){
     let found=false;
     for(let r=1;r<=8&&!found;r++){
@@ -623,7 +622,7 @@ function astar(sx,sy,gx2,gy2){
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// ROS2 / rosbridge  — FIXED: /f_scan + /b_scan, /map subscribe, Hz
+// ROS2 / rosbridge
 // ════════════════════════════════════════════════════════════════════════
 let ws=null;
 let rosConnected=false;
@@ -634,16 +633,14 @@ let ppPathIdx=0;
 let odomCount=0;
 let mapSubbed=false;
 
-// Hz counter
 setInterval(()=>{
   document.getElementById('hz-pill').textContent=odomCount+' Hz';
   odomCount=0;
 },1000);
 
-// topic watchdog — /map ค้างเขียวตลอดหลังรับครั้งแรก (latched topic)
 const topicLastSeen={};
-const topicTimeout={odom:3000, fscan:3000, bscan:3000}; // map ไม่มี timeout
-const topicLatch=new Set(); // topics ที่รับแล้วค้างสถานะ
+const topicTimeout={odom:3000, fscan:3000, bscan:3000};
+const topicLatch=new Set();
 function touchTopic(id){
   topicLastSeen[id]=Date.now();
   setTopicStatus(id,true);
@@ -688,9 +685,7 @@ function connectROS(){
     mapSubbed=false;
     rosMode=false;
     rosMapData=null; rosMapBitmap=null;
-    // clear TF buffer
     Object.keys(tfBuffer).forEach(k=>delete tfBuffer[k]);
-    // clear latched state so reconnect starts fresh
     topicLatch.clear();
     Object.keys(topicLastSeen).forEach(k=>delete topicLastSeen[k]);
     setStatus('ตัดการเชื่อมต่อ','#8b949e',false);
@@ -716,7 +711,6 @@ function subscribeTopics(){
   rosSend({op:'subscribe',topic:'/base_controller/odom',type:'nav_msgs/msg/Odometry',throttle_rate:200});
   rosSend({op:'subscribe',topic:'/f_scan',type:'sensor_msgs/msg/LaserScan',throttle_rate:300});
   rosSend({op:'subscribe',topic:'/b_scan',type:'sensor_msgs/msg/LaserScan',throttle_rate:300});
-  // subscribe /tf เพื่อดึง map→base_footprint (ตำแหน่งจริงบน map)
   rosSend({op:'subscribe',topic:'/tf',type:'tf2_msgs/msg/TFMessage',throttle_rate:200});
   rosSend({op:'subscribe',topic:'/tf_static',type:'tf2_msgs/msg/TFMessage'});
   rosSend({op:'advertise',topic:'/goal_pose',type:'geometry_msgs/msg/PoseStamped'});
@@ -728,38 +722,30 @@ function subscribeTopics(){
   appendLog('Subscribe: /odom /tf /f_scan /b_scan /map | Pub: /goal_pose /cmd_vel','ros');
 }
 
-// ── TF buffer: เก็บ transform ล่าสุดของแต่ละ frame pair ──────────────
-const tfBuffer={};  // key = "parent->child"
+const tfBuffer={};
 function storeTF(transforms){
   for(const t of transforms){
     const key=`${t.header.frame_id}->${t.child_frame_id}`;
     tfBuffer[key]=t.transform;
   }
-  // dot เขียวถ้ามี TF ใดๆ ที่เกี่ยวกับ base
   const hasBase=Object.keys(tfBuffer).some(k=>k.includes('base_footprint')||k.includes('base_link'));
   if(hasBase) setTopicStatus('tf',true);
 }
 
-// chain: map→odom→base_footprint (compose 2 transforms)
 function composeTF(a,b){
-  // a, b = {translation:{x,y,z}, rotation:{x,y,z,w}}
   const ax=a.translation.x, ay=a.translation.y;
   const aw=a.rotation.w, az=a.rotation.z;
   const bx=b.translation.x, by=b.translation.y;
-  // rotate b position by a rotation (2D only)
   const rx=ax + (aw*aw - az*az)*bx - 2*aw*az*by;
   const ry=ay + 2*aw*az*bx + (aw*aw - az*az)*by;
-  // compose rotations (quaternion multiply, 2D)
   const rw=aw*b.rotation.w - az*b.rotation.z;
   const rz=aw*b.rotation.z + az*b.rotation.w;
   return{translation:{x:rx,y:ry,z:0},rotation:{x:0,y:0,z:rz,w:rw}};
 }
 
 function getMapPose(){
-  // ลอง direct map→base_footprint หรือ map→base_link ก่อน
   let tf=tfBuffer['map->base_footprint']||tfBuffer['map->base_link'];
   if(tf) return poseFromTF(tf);
-  // ลอง chain: map→odom + odom→base_footprint
   const mo=tfBuffer['map->odom'];
   const ob=tfBuffer['odom->base_footprint']||tfBuffer['odom->base_link'];
   if(mo&&ob) return poseFromTF(composeTF(mo,ob));
@@ -773,23 +759,18 @@ function poseFromTF(tf){
   return{x:tf.translation.x, y:tf.translation.y, h:Math.atan2(siny,cosy)};
 }
 
-// ── updateRobotPose — central function, มี smoothing กัน teleport ──────
 let lastDrawTime=0;
 function updateRobotPose(nx, ny, nh, src){
-  // กัน teleport: ถ้า position กระโดด >5m ใน 1 update ให้ข้ามไป
   const jump=Math.hypot(nx-robotX, ny-robotY);
   if(jump>5.0 && robotX!==MODEL_OX){
     appendLog(`⚠ TF jump ${jump.toFixed(2)}m ข้าม`,'warn');
     return;
   }
-
   robotX=nx; robotY=ny; robotH=nh;
   trail.push({x:robotX,y:robotY});
   if(trail.length>MAX_TRAIL) trail.shift();
-
   document.getElementById('rsrc-lbl').textContent=src;
   document.getElementById('rsrc-lbl').style.color='var(--green)';
-
   if(followRobot){
     const cxT=wx(robotX), cyT=wy(robotY);
     const W2=mapArea.clientWidth, H2=mapArea.clientHeight, margin=100;
@@ -797,10 +778,7 @@ function updateRobotPose(nx, ny, nh, src){
       panX=W2/2-(robotX-XMIN)*SCALE; panY=H2/2-(YMAX-robotY)*SCALE;
     }
   }
-
   nav2CheckArrival();
-
-  // throttle draw ไม่เกิน 30fps กัน UI กระตุก
   const now=Date.now();
   if(now-lastDrawTime > 33){
     lastDrawTime=now;
@@ -811,7 +789,6 @@ function updateRobotPose(nx, ny, nh, src){
 function toggleMapSub(){
   if(!rosConnected){showToast('ยังไม่ได้เชื่อมต่อ ROS2');document.getElementById('sub-map').checked=false;return;}
   if(document.getElementById('sub-map').checked&&!mapSubbed){
-    // /map เป็น latched topic — ไม่ใส่ throttle_rate เพราะส่งแค่ครั้งเดียวตอน subscribe
     rosSend({op:'subscribe',topic:'/map',type:'nav_msgs/msg/OccupancyGrid'});
     mapSubbed=true;
     appendLog('Subscribe: /map (latched — รอรับครั้งเดียว)','ros');
@@ -825,32 +802,20 @@ function toggleMapSub(){
   }
 }
 
-// ── MAIN ROS MESSAGE HANDLER ──────────────────────────────────────────
 function handleROSMsg(msg){
   if(!msg||!msg.topic)return;
-
-  // /tf และ /tf_static
   if(msg.topic==='/tf'||msg.topic==='/tf_static'){
     if(!msg.msg||!msg.msg.transforms) return;
-
-    // เช็คก่อนว่ามี map-related transform ใน batch นี้ไหม
     const hasMapTF=msg.msg.transforms.some(t=>
       t.header.frame_id==='map'||t.child_frame_id==='base_footprint'||t.child_frame_id==='base_link'
     );
-
     storeTF(msg.msg.transforms);
-
-    // อัปเดต robot pose เฉพาะถ้ามี relevant transform และเปิด use-odom
     if(hasMapTF && document.getElementById('use-odom').checked){
       const pose=getMapPose();
-      if(pose){
-        updateRobotPose(pose.x, pose.y, pose.h, 'TF map→base');
-      }
+      if(pose){ updateRobotPose(pose.x, pose.y, pose.h, 'TF map→base'); }
     }
     return;
   }
-
-  // /odom — fallback ถ้าไม่มี TF
   if(msg.topic==='/base_controller/odom'){
     odomCount++;
     touchTopic('odom');
@@ -867,8 +832,6 @@ function handleROSMsg(msg){
     }
     return;
   }
-
-  // /f_scan — FIX: was checking '/scan' (never matched)
   if(msg.topic==='/f_scan'){
     touchTopic('fscan');
     if(document.getElementById('show-lidar').checked&&msg.msg)
@@ -876,8 +839,6 @@ function handleROSMsg(msg){
     onLidarUpdate();
     return;
   }
-
-  // /b_scan — FIX: new handler
   if(msg.topic==='/b_scan'){
     touchTopic('bscan');
     if(document.getElementById('show-lidar').checked&&msg.msg)
@@ -885,7 +846,6 @@ function handleROSMsg(msg){
     onLidarUpdate();
     return;
   }
-
   if(msg.topic==='/plan'){
     if(msg.msg&&msg.msg.poses&&msg.msg.poses.length>0){
       nav2Path=msg.msg.poses.map(p=>({x:p.pose.position.x,y:p.pose.position.y}));
@@ -893,7 +853,6 @@ function handleROSMsg(msg){
     }
     return;
   }
-  // /map — latched topic
   if(msg.topic==='/map'){
     touchTopicLatched('map');
     if(msg.msg) processMapMsg(msg.msg);
@@ -914,9 +873,8 @@ function parseScan(scan){
   return pts;
 }
 
-// /map occupancy grid
 let rosMapData=null;
-let rosMapBitmap=null;  // ImageBitmap สำหรับ drawImage เร็ว
+let rosMapBitmap=null;
 
 function processMapMsg(mapMsg){
   const w=mapMsg.info.width, h=mapMsg.info.height;
@@ -924,34 +882,25 @@ function processMapMsg(mapMsg){
   const ox=mapMsg.info.origin.position.x;
   const oy=mapMsg.info.origin.position.y;
   const data=mapMsg.data;
-
   rosMapData={width:w,height:h,res,ox,oy,data};
-
-  // สร้าง ImageData จาก OccupancyGrid
-  // occupancy: -1=unknown(grey), 0=free(white), 1-100=occupied(dark→black)
   const imgData=new ImageData(w,h);
   const px=imgData.data;
   for(let i=0;i<data.length;i++){
     const v=data[i];
     const idx=i*4;
     if(v===-1){
-      // unknown — grey
       px[idx]=128;px[idx+1]=128;px[idx+2]=128;px[idx+3]=180;
     } else if(v===0){
-      // free — white/light
       px[idx]=210;px[idx+1]=220;px[idx+2]=220;px[idx+3]=220;
     } else {
-      // occupied — dark (สัดส่วนตาม probability)
       const dark=Math.round(20*(1-v/100));
       px[idx]=dark;px[idx+1]=dark;px[idx+2]=dark;px[idx+3]=255;
     }
   }
-
-  // แปลงเป็น ImageBitmap (async, non-blocking)
   createImageBitmap(imgData).then(bmp=>{
     rosMapBitmap=bmp;
     appendLog(`/map รับแล้ว: ${w}×${h} px, res=${res}m → render ✓`,'ok');
-    draw(); // redraw ทันทีหลังได้ bitmap
+    draw();
   });
 }
 
@@ -960,7 +909,6 @@ function setTopicStatus(id,ok){
   if(el)el.className='topic-status'+(ok?' ok':'');
 }
 
-// ── PUBLISHERS ───────────────────────────────────────────────────────
 function publishGoal(x,y,yaw=0){
   if(!rosConnected)return;
   const cz=Math.sin(yaw/2), cw=Math.cos(yaw/2);
@@ -990,7 +938,7 @@ function publishCmdVel(linear_x,angular_z){
 
 function sendEmergencyStop(){
   if(rosConnected){
-    for(let i=0;i<3;i++) setTimeout(()=>publishCmdVel(0,0),i*50); // send 3x
+    for(let i=0;i<3;i++) setTimeout(()=>publishCmdVel(0,0),i*50);
     appendLog('⚠ E-STOP — cmd_vel=0 (x3)','err');
   }
   stopRobot();
@@ -1041,27 +989,22 @@ function animate(ts){
   animFrame=requestAnimationFrame(animate);
   const dt=lastTime?Math.min((ts-lastTime)/1000,0.1):0;
   lastTime=ts;
-  // Nav2 mode: ไม่ต้องวน stepRobot — goal ส่งครั้งเดียวแล้วหยุด
-  // odom polling จัดการแยกใน handleROSMsg
   if((autoMode||patrolMode) && waypoints.length>0 && !useNav2Mode()){
     stepRobotSim(dt);
   }
   updateUI(); draw();
 }
 
-// ── ROS Nav2 mode ─────────────────────────────────────────────────────
-// ส่ง goal ครั้งเดียวแล้วหยุด — odom ใน handleROSMsg คอย check ระยะ
 let nav2GoalSent=false;
 let goalSentTime=0;
-let arrivalStableCount=0;      // ต้องอยู่ใน radius ติดกัน N ครั้ง ก่อน confirm
+let arrivalStableCount=0;
 const ARRIVAL_RADIUS=0.8;
 const ARRIVAL_STABLE_NEEDED=3;
-const GOAL_COOLDOWN=5000;  // 5s กัน goal preempt
+const GOAL_COOLDOWN=5000;
 let lastGoalArriveTime=0;
 
 function sendNav2Goal(x,y){
   if(nav2GoalSent) return;
-  // cooldown กัน publish ซ้ำเร็วเกินไป
   if(Date.now()-lastGoalArriveTime < GOAL_COOLDOWN) return;
   nav2GoalSent=true;
   goalSentTime=Date.now();
@@ -1078,23 +1021,18 @@ function nav2CheckArrival(){
   if((!autoMode&&!patrolMode) || !nav2GoalSent || !waypoints.length) return;
   const wp=waypoints[0];
   const dist=Math.hypot(robotX-wp.x, robotY-wp.y);
-
   if(dist < ARRIVAL_RADIUS){
     arrivalStableCount++;
-    // ต้องอยู่ใน radius ติดกัน N ครั้ง จึงถือว่าถึงจริง (กัน oscillate)
     if(arrivalStableCount >= ARRIVAL_STABLE_NEEDED){
       appendLog(`✓ ถึง (${wp.x.toFixed(2)},${wp.y.toFixed(2)}) dist=${dist.toFixed(2)}m [stable ${arrivalStableCount}]`,'ok');
       nav2GoalSent=false;
       arrivalStableCount=0;
       consecutiveFailCount=0;
       lastGoalArriveTime=Date.now();
-
       if(patrolMode) waypoints.push(waypoints.shift());
       else waypoints.shift();
       updateWpList();
-
       if(waypoints.length>0){
-        // delay ก่อนส่ง goal ถัดไป กัน Nav2 preempt ตัวเอง
         setTimeout(()=>{
           if((autoMode||patrolMode) && waypoints.length>0)
             sendNav2Goal(waypoints[0].x, waypoints[0].y);
@@ -1105,11 +1043,8 @@ function nav2CheckArrival(){
       }
     }
   } else {
-    // ออกนอก radius → reset stable count
     arrivalStableCount=0;
   }
-
-  // goal timeout 90s
   if(nav2GoalSent && goalSentTime && Date.now()-goalSentTime > 60000){
     appendLog('⏱ Goal timeout (90s)','err');
     nav2GoalSent=false;
@@ -1119,7 +1054,6 @@ function nav2CheckArrival(){
   }
 }
 
-// ── SIM A* mode ───────────────────────────────────────────────────────
 function stepRobotSim(dt){
   if(!currentPath || pathIdx>=currentPath.length || (Array.isArray(currentPath)&&currentPath[0]==='sent')){
     if(!waypoints.length){stopRobot();return;}
@@ -1195,7 +1129,6 @@ function draw(){
   ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,W,H);
   sCtx.clearRect(0,0,W,H);
 
-  // Grid
   if(document.getElementById('sg').checked){
     ctx.strokeStyle='rgba(48,54,61,.7)'; ctx.lineWidth=0.5;
     for(let x=Math.floor(XMIN);x<=Math.ceil(XMAX);x++){ctx.beginPath();ctx.moveTo(wx(x),0);ctx.lineTo(wx(x),H);ctx.stroke();}
@@ -1205,29 +1138,25 @@ function draw(){
     for(let y=Math.floor(YMIN);y<=Math.ceil(YMAX);y+=2) ctx.fillText(y+'m',3,wy(y)+4);
   }
 
-  // Axes
   ctx.strokeStyle='rgba(248,81,73,.3)'; ctx.lineWidth=1;
   ctx.beginPath();ctx.moveTo(0,wy(0));ctx.lineTo(W,wy(0));ctx.stroke();
   ctx.strokeStyle='rgba(63,185,80,.3)';
   ctx.beginPath();ctx.moveTo(wx(0),0);ctx.lineTo(wx(0),H);ctx.stroke();
 
-  // ROS /map — OccupancyGrid row0 = bottom (Y+ up), canvas row0 = top → ต้อง flip Y
   if(document.getElementById('socc').checked && rosMapBitmap && rosMapData){
     const{width,height,res,ox,oy}=rosMapData;
     const x0=wx(ox);
-    const y0=wy(oy);          // top-left ใน world = oy (Y ล่างสุดของ map)
+    const y0=wy(oy);
     const w2=width*res*SCALE;
     const h2=height*res*SCALE;
     ctx.save();
     ctx.globalAlpha=0.88;
-    // flip แนวตั้ง: translate ไป y0, scale Y=-1, แล้ว drawImage จาก 0
     ctx.translate(x0, y0);
     ctx.scale(1, -1);
     ctx.drawImage(rosMapBitmap, 0, 0, w2, h2);
     ctx.restore();
   }
 
-  // PGM
   if(document.getElementById('sp').checked){
     const ps=PGM_RES*SCALE;
     ctx.fillStyle='rgba(56,189,248,.18)';
@@ -1236,7 +1165,6 @@ function draw(){
     for(const[r,c] of wallPixels) ctx.fillRect(wx(PGM_OX+c*PGM_RES),wy(PGM_OY+(PGM_H-r)*PGM_RES)-ps,ps,ps);
   }
 
-  // Walls
   if(document.getElementById('sw').checked){
     for(const w of walls){
       ctx.save(); ctx.translate(wx(w.lx),wy(w.ly)); ctx.rotate(-w.ang);
@@ -1246,7 +1174,6 @@ function draw(){
     }
   }
 
-  // Objects
   if(document.getElementById('so').checked){
     for(const o of objects){
       const cx2=wx(o.x), cy2=wy(o.y);
@@ -1267,7 +1194,6 @@ function draw(){
     }
   }
 
-  // LIDAR overlay — FIX: render both f_scan (cyan) and b_scan (yellow)
   if(document.getElementById('show-lidar').checked){
     const allPts=[
       {pts:lidarPointsF, col:'rgba(57,213,213,0.7)', fanCol:'rgba(57,213,213,0.07)'},
@@ -1287,7 +1213,6 @@ function draw(){
     }
   }
 
-  // Trail
   if(document.getElementById('str').checked&&trail.length>1){
     ctx.beginPath(); ctx.moveTo(wx(trail[0].x),wy(trail[0].y));
     for(let i=1;i<trail.length;i++) ctx.lineTo(wx(trail[i].x),wy(trail[i].y));
@@ -1295,7 +1220,6 @@ function draw(){
     ctx.lineJoin='round'; ctx.setLineDash([]); ctx.stroke();
   }
 
-  // A* path
   if(document.getElementById('sph').checked&&currentPath&&pathIdx<currentPath.length){
     ctx.beginPath(); ctx.moveTo(wx(robotX),wy(robotY));
     for(let i=pathIdx;i<currentPath.length;i++) ctx.lineTo(wx(currentPath[i][0]),wy(currentPath[i][1]));
@@ -1306,7 +1230,6 @@ function draw(){
     ctx.fillStyle='rgba(88,166,255,.8)'; ctx.fill();
   }
 
-  // Waypoints
   waypoints.forEach((wp,i)=>{
     const cx2=wx(wp.x), cy2=wy(wp.y), isN=i===0;
     ctx.beginPath(); ctx.arc(cx2,cy2,isN?9:6,0,Math.PI*2);
@@ -1327,15 +1250,12 @@ function draw(){
     }
   });
 
-  // Robot
   const rx=wx(robotX), ry=wy(robotY), rr=Math.max(5,SCALE*.45);
   ctx.save();
-  // glow rings
   for(let i=3;i>0;i--){
     ctx.beginPath(); ctx.arc(rx,ry,rr+i*4,0,Math.PI*2);
     ctx.strokeStyle=`rgba(188,140,255,${.04*i})`; ctx.lineWidth=2; ctx.stroke();
   }
-  // heading arrow
   const hx=rx+Math.cos(robotH)*rr*2.5, hy=ry-Math.sin(robotH)*rr*2.5;
   ctx.strokeStyle='rgba(188,140,255,.8)'; ctx.lineWidth=2;
   ctx.beginPath(); ctx.moveTo(rx,ry); ctx.lineTo(hx,hy); ctx.stroke();
@@ -1345,7 +1265,6 @@ function draw(){
   ctx.lineTo(hx-Math.cos(robotH-.4)*rr*.7,hy+Math.sin(robotH-.4)*rr*.7);
   ctx.lineTo(hx-Math.cos(robotH+.4)*rr*.7,hy+Math.sin(robotH+.4)*rr*.7);
   ctx.closePath(); ctx.fill();
-  // body
   ctx.shadowColor='rgba(188,140,255,.9)'; ctx.shadowBlur=SCALE*.5;
   ctx.beginPath(); ctx.arc(rx,ry,rr,0,Math.PI*2);
   ctx.fillStyle='rgba(188,140,255,.95)'; ctx.fill();
@@ -1354,14 +1273,12 @@ function draw(){
   ctx.strokeStyle='rgba(13,17,23,.8)'; ctx.lineWidth=1.5;
   ctx.beginPath(); ctx.moveTo(rx-rr*.45,ry); ctx.lineTo(rx+rr*.45,ry); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(rx,ry-rr*.45); ctx.lineTo(rx,ry+rr*.45); ctx.stroke();
-  // ROS connected ring
   if(rosConnected){
     ctx.beginPath(); ctx.arc(rx,ry,rr+3,0,Math.PI*2);
     ctx.strokeStyle='rgba(63,185,80,.8)'; ctx.lineWidth=2; ctx.stroke();
   }
   ctx.restore();
 
-  // ── เส้นทาง: เริ่มจาก hx,hy (ปลายลูกศรสีม่วง) ─────────────────────
   if(document.getElementById('sph').checked){
     if(nav2Path.length>1){
       ctx.beginPath(); ctx.moveTo(hx,hy);
@@ -1421,7 +1338,6 @@ function drawMini(){
   mCtx.beginPath(); mCtx.arc(mwx2(robotX),mwy2(robotY),4,0,Math.PI*2);
   mCtx.fillStyle='#bc8cff'; mCtx.fill();
   mCtx.strokeStyle='#fff'; mCtx.lineWidth=1; mCtx.stroke();
-  // viewport rect
   const W2=mapArea.clientWidth, H2=mapArea.clientHeight;
   mCtx.strokeStyle='rgba(88,166,255,.6)'; mCtx.lineWidth=1;
   mCtx.strokeRect(
@@ -1503,7 +1419,6 @@ function onSpeedSlider(el){
   document.getElementById('speed-lbl').textContent=el.value+' m/s';
 }
 
-// ── WAYPOINT MANAGEMENT ───────────────────────────────────────────────
 function addWaypoint(x,y,src='manual'){
   waypoints.push({x,y,src});
   appendLog(`จุด #${waypoints.length} (${x.toFixed(2)},${y.toFixed(2)}) [${src}]`,'info');
@@ -1550,7 +1465,6 @@ function updateWpList(){
     </div>`).join('');
 }
 
-// ── RIGHT-CLICK CONTEXT MENU ──────────────────────────────────────────
 let ctxX=0, ctxY=0;
 const ctxMenu=document.getElementById('ctx-menu');
 
@@ -1571,19 +1485,17 @@ document.addEventListener('click',()=>{ ctxMenu.style.display='none'; });
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') ctxMenu.style.display='none'; });
 
 function goToPoint(x,y){
-  // reset flag ก่อนเสมอ เพื่อให้ส่ง goal ใหม่ได้
   nav2GoalSent=false;
   waypoints=[{x,y,src:'click'}];
   currentPath=null;
   updateWpList();
-
   if(useNav2Mode()){
     autoMode=true;
     patrolMode=false;
     document.getElementById('btn-auto').classList.add('active');
     document.getElementById('btn-patrol').classList.remove('active');
-    sendNav2Goal(x,y);   // ส่งครั้งเดียว ไม่วน loop
-    startLoop();         // loop แค่เพื่อ draw (ไม่ stepRobotNav2 แล้ว)
+    sendNav2Goal(x,y);
+    startLoop();
     showToast(`🎯 Nav2 → (${x.toFixed(2)}, ${y.toFixed(2)})`);
   } else {
     autoMode=true;
@@ -1597,22 +1509,10 @@ function goToPoint(x,y){
   }
 }
 
-function ctxAddWaypoint(){
-  addWaypoint(ctxX,ctxY,'manual');
-  showToast(`📍 เพิ่ม waypoint (${ctxX.toFixed(2)}, ${ctxY.toFixed(2)})`);
-}
+function ctxAddWaypoint(){ addWaypoint(ctxX,ctxY,'manual'); showToast(`📍 เพิ่ม waypoint (${ctxX.toFixed(2)}, ${ctxY.toFixed(2)})`); }
+function ctxGoTo(){ goToPoint(ctxX,ctxY); }
+function ctxSetOrigin(){ robotX=ctxX; robotY=ctxY; robotH=0; trail.length=0; appendLog(`ตั้งตำแหน่งหุ่น → (${ctxX.toFixed(2)},${ctxY.toFixed(2)})`,'info'); draw(); }
 
-function ctxGoTo(){
-  goToPoint(ctxX,ctxY);
-}
-function ctxSetOrigin(){
-  robotX=ctxX; robotY=ctxY; robotH=0;
-  trail.length=0;
-  appendLog(`ตั้งตำแหน่งหุ่น → (${ctxX.toFixed(2)},${ctxY.toFixed(2)})`,'info');
-  draw();
-}
-
-// ── STATUS / LOG ──────────────────────────────────────────────────────
 function setStatus(txt,color,blinking){
   document.getElementById('stxt').textContent=txt;
   const dot=document.getElementById('sdot');
@@ -1698,7 +1598,6 @@ mapArea.addEventListener('wheel',e=>{
   document.getElementById('zoom-lbl').textContent=Math.round(SCALE); draw();
 },{passive:false});
 
-// Keyboard shortcuts
 window.addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT')return;
   if(e.key===' '||e.key==='f'){e.preventDefault();fitView();followRobot=true;}
@@ -1710,14 +1609,13 @@ window.addEventListener('keydown',e=>{
   if(e.key==='-'){ changeZoom(1/1.15); }
 });
 
-// Layer toggles → redraw
 ['sw','sp','so','sph','str','sg','socc'].forEach(id=>
   document.getElementById(id).addEventListener('change',draw)
 );
 window.addEventListener('resize',()=>draw());
 
 // ════════════════════════════════════════════════════════════════════════
-// 🧠 ROBOT AI BRAIN — ตัดสินใจเอง วางแผน patrol หลบสิ่งกีดขวาง
+// 🧠 ROBOT AI BRAIN
 // ════════════════════════════════════════════════════════════════════════
 const aiHistory=[];
 let autoBrainOn=false;
@@ -1725,603 +1623,10 @@ let autoBrainTimer=null;
 let autoBrainCountdown=30;
 let lastGoalFailTime=0;
 let consecutiveFailCount=0;
-let anthropicApiKey=''; // unused, kept for compat
-
-function saveApiKey(){} // unused
 
 function getOllamaUrl(){ return document.getElementById('ollama-url').value.trim(); }
 function getOllamaModel(){ return document.getElementById('ollama-model').value.trim()||'llama3.2'; }
 function sanitizeAIReply(text){
   if(!text) return '';
   text=text.substring(0,400);
-  const m=text.match(/(.{5,30}){3,}/);
-  if(m) text=text.substring(0,text.indexOf(m[0]));
-  return text.trim()||'[no response]';
-}
-
-// ── sanitize: cut loops and cap length ──────────────────────────────
-function sanitizeAIReply(text){
-  if(!text) return '';
-  text=text.substring(0,400);
-  const loopMatch=text.match(/(.{5,30})1{3,}/);
-  if(loopMatch) text=text.substring(0,text.indexOf(loopMatch[0]));
-  return text.trim()||'[no valid response]';
-}
-
-async function testOllama(){
-  document.getElementById('ai-status').textContent='⏳ ทดสอบ...';
-  try{
-    const res=await fetch(`${getOllamaUrl()}/api/tags`);
-    const data=await res.json();
-    const models=data.models?.map(m=>m.name).join(', ')||'ไม่มี';
-    document.getElementById('ai-status').textContent='✓ เชื่อม';
-    appendLog(`Ollama OK — models: ${models}`,'ok');
-    showToast(`✅ Ollama: ${models}`);
-    // auto-fill model ตัวแรก
-    if(data.models?.length>0){
-      document.getElementById('ollama-model').value=data.models[0].name;
-    }
-  }catch(e){
-    document.getElementById('ai-status').textContent='❌ เชื่อมไม่ได้';
-    appendLog('Ollama error: '+e.message,'err');
-    showToast('❌ '+e.message);
-  }
-}
-
-async function callOllama(systemPrompt, userPrompt){
-  const res=await fetch(`${getOllamaUrl()}/api/chat`,{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({
-      model:getOllamaModel(),
-      stream:false,
-      options:{
-        num_predict:120,
-        temperature:0.1,
-        repeat_penalty:1.8,
-        stop:['\n\n','###','---','ครับ','ค่ะ']
-      },
-      messages:[
-        {role:'system', content:systemPrompt},
-        {role:'user',   content:userPrompt}
-      ]
-    })
-  });
-  if(!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data=await res.json();
-  return data.message?.content||'';
-}
-
-// ════════════════════════════════════════════════════════════════════════
-// NAV DECISION ENGINE
-// ════════════════════════════════════════════════════════════════════════
-
-// ── LIDAR → 4-direction distances (from real /f_scan + /b_scan) ──────
-function getLidarDistances(){
-  const all=[...lidarPointsF,...lidarPointsB];
-  const d={front:99,back:99,left:99,right:99}; // 99=no obstacle detected
-  for(const p of all){
-    const dx=p.x-robotX, dy=p.y-robotY;
-    const dist=Math.hypot(dx,dy);
-    if(dist<0.1||dist>6) continue; // ignore noise & far
-    let ang=Math.atan2(dy,dx)-robotH; // relative to heading
-    while(ang>Math.PI) ang-=2*Math.PI;
-    while(ang<-Math.PI) ang+=2*Math.PI;
-    const deg=ang*180/Math.PI;
-    if(deg>=-45&&deg<45){ if(dist<d.front) d.front=dist; }
-    else if(deg>=45&&deg<135){ if(dist<d.left) d.left=dist; }
-    else if(deg<=-45&&deg>-135){ if(dist<d.right) d.right=dist; }
-    else { if(dist<d.back) d.back=dist; }
-  }
-  return d;
-}
-
-// ── Update compass arcs based on distances ───────────────────────────
-const NC_MAX=5; // max display distance
-function updateNavCompass(d){
-  const arcs={front:'nca-front',back:'nca-back',left:'nca-left',right:'nca-right'};
-  Object.entries(arcs).forEach(([dir,id])=>{
-    const v=d[dir]; const norm=Math.min(v,NC_MAX)/NC_MAX;
-    const el=document.getElementById(id);
-    if(!el) return;
-    el.setAttribute('stroke', norm>0.3?'#3fb950':norm>0.15?'#f0883e':'#f85149');
-    el.setAttribute('opacity', 0.3+norm*0.65);
-  });
-}
-
-// ── Rule-based nav decision ──────────────────────────────────────────
-const NEAR=0.5, MID=1.0;
-function ruleNavDecide(d){
-  const{front,back,left,right}=d;
-  if(front>MID){
-    return{cmd:'FORWARD',reason:`หน้าโล่ง ${front.toFixed(1)}m`,conf:Math.min(98,Math.round(front/NC_MAX*100)),ang:0};
-  }
-  if(front<=NEAR){
-    if(left<=MID&&right<=MID){
-      if(back>MID) return{cmd:'REVERSE',reason:`ทุกทิศปิด→ถอย ${back.toFixed(1)}m`,conf:85,ang:180};
-      return{cmd:'ROTATE_LEFT',reason:'ปิดหมด→หมุนหาทาง',conf:70,ang:270};
-    }
-    if(left>right) return{cmd:'TURN_LEFT',reason:`ซ้ายโล่ง ${left.toFixed(1)}m`,conf:82,ang:315};
-    return{cmd:'TURN_RIGHT',reason:`ขวาโล่ง ${right.toFixed(1)}m`,conf:82,ang:45};
-  }
-  // mid range
-  if(left>right) return{cmd:'TURN_LEFT',reason:`เตรียมเลี้ยว ${front.toFixed(1)}m`,conf:62,ang:315};
-  return{cmd:'TURN_RIGHT',reason:`เตรียมเลี้ยว ${front.toFixed(1)}m`,conf:62,ang:45};
-}
-
-// ── CMD meta (icon + color + compass arrow angle) ────────────────────
-const NAV_META={
-  FORWARD:     {icon:'↑',color:'var(--green)',ang:0},
-  TURN_LEFT:   {icon:'↰',color:'var(--accent)',ang:315},
-  TURN_RIGHT:  {icon:'↱',color:'var(--accent)',ang:45},
-  REVERSE:     {icon:'↓',color:'var(--warn)',ang:180},
-  ROTATE_LEFT: {icon:'↺',color:'#ffd700',ang:270},
-  ROTATE_RIGHT:{icon:'↻',color:'#ffd700',ang:90},
-  STRAFE_L:    {icon:'↙',color:'var(--accent)',ang:270},
-  STRAFE_R:    {icon:'↘',color:'var(--accent)',ang:90},
-  STOP:        {icon:'■',color:'var(--danger)',ang:0},
-  STANDBY:     {icon:'⏸',color:'var(--muted)',ang:0},
-};
-
-// ── Update decision display ──────────────────────────────────────────
-function setNavDecision(cmd,reason,conf){
-  const meta=NAV_META[cmd]||NAV_META.STANDBY;
-  const cmdEl=document.getElementById('nc-cmd');
-  const reasonEl=document.getElementById('nc-reason');
-  const iconEl=document.getElementById('nc-icon');
-  const confEl=document.getElementById('nc-conf');
-  const arrowEl=document.getElementById('nca-arrow');
-  if(cmdEl){ cmdEl.textContent=cmd.replace('_',' '); cmdEl.style.color=meta.color; }
-  if(reasonEl) reasonEl.textContent=reason;
-  if(iconEl) iconEl.textContent=meta.icon;
-  if(confEl) confEl.style.width=conf+'%';
-  if(arrowEl) arrowEl.setAttribute('transform',`rotate(${meta.ang},55,55)`);
-  // highlight D-pad
-  document.querySelectorAll('.ndpad .btn').forEach(b=>b.classList.remove('nav-lit'));
-  const padMap={FORWARD:'npb-fwd',REVERSE:'npb-rev',TURN_LEFT:'npb-left',TURN_RIGHT:'npb-right'};
-  if(padMap[cmd]){ const b=document.getElementById(padMap[cmd]); if(b) b.classList.add('nav-lit'); }
-}
-
-// ── Manual nav command from D-pad ───────────────────────────────────
-let navManualTimer=null;
-function navManual(cmd){
-  // publish cmd_vel
-  const lin=0.5, ang=0.5;
-  const velMap={
-    FORWARD:     [lin,0],
-    REVERSE:     [-lin,0],
-    TURN_LEFT:   [lin*0.5, ang],
-    TURN_RIGHT:  [lin*0.5,-ang],
-    ROTATE_LEFT: [0, ang],
-    ROTATE_RIGHT:[0,-ang],
-    STRAFE_L:    [0, ang*0.5],
-    STRAFE_R:    [0,-ang*0.5],
-    STOP:        [0,0],
-  };
-  const[lx,az]=velMap[cmd]||[0,0];
-  publishCmdVel(lx,az);
-  setNavDecision(cmd,'Manual D-pad',100);
-  // flash pad button green
-  document.querySelectorAll('.ndpad .btn').forEach(b=>b.classList.remove('nav-cmd'));
-  const padMap={FORWARD:'npb-fwd',REVERSE:'npb-rev',TURN_LEFT:'npb-left',TURN_RIGHT:'npb-right'};
-  if(padMap[cmd]){ const b=document.getElementById(padMap[cmd]); if(b){ b.classList.add('nav-cmd'); setTimeout(()=>b.classList.remove('nav-cmd'),600); } }
-  appendLog(`D-pad: ${cmd} → cmd_vel(${lx.toFixed(1)},${az.toFixed(1)})`,'ros');
-}
-
-// ── Run nav decision (rule or AI) ────────────────────────────────────
-async function runNavDecide(fromButton=false){
-  const mode=document.getElementById('nav-dec-mode')?.value||'rule';
-  if(mode==='manual') return;
-
-  const d=getLidarDistances();
-  updateNavCompass(d);
-
-  if(mode==='rule'||!rosConnected){
-    const r=ruleNavDecide(d);
-    setNavDecision(r.cmd,r.reason,r.conf);
-    if(fromButton) appendLog(`[NavRule] ${r.cmd}: ${r.reason}`,'ros');
-    return;
-  }
-
-  // AI mode
-  if(fromButton) appendLog('[NavAI] Sending LIDAR context to Ollama...','info');
-  document.getElementById('nc-status').textContent='⏳ AI...';
-  try{
-    const prompt=
-`You are a MiR100 ROS2 navigation system.
-LIDAR distances (meters):
-front=${d.front.toFixed(2)} back=${d.back.toFixed(2)} left=${d.left.toFixed(2)} right=${d.right.toFixed(2)}
-Danger:<0.5m Caution:<1.0m
-Respond with EXACTLY this format on one line, nothing else:
-CMD|reason
-Valid CMD values: FORWARD REVERSE TURN_LEFT TURN_RIGHT ROTATE_LEFT ROTATE_RIGHT STOP
-Example: FORWARD|path clear 2.1m`;
-    const reply=await callOllama('MiR100 nav', prompt);
-    // robust parser — handles CMD|reason, CMD:reason, plain CMD, "Rationale:" garbage
-    const _clean=reply.substring(0,300).replace(/(.{5,30})\1{3,}/g,'').trim();
-    const firstLine=_clean.split('\n')[0].trim();
-    const parts=firstLine.split(/[|:]/);
-    const rawCmd=parts[0].trim().toUpperCase().replace(/[^A-Z_]/g,'');
-    const reason=(parts[1]||'').trim().substring(0,60)||'ok';
-    const valid=Object.keys(NAV_META);
-    const finalCmd=valid.includes(rawCmd)?rawCmd:ruleNavDecide(d).cmd;
-    setNavDecision(finalCmd,`AI: ${reason}`,88);
-    document.getElementById('nc-status').textContent='✓ AI';
-    appendLog(`[NavAI] ${finalCmd}: ${reason}`,'ros');
-  }catch(e){
-    document.getElementById('nc-status').textContent='❌';
-    const r=ruleNavDecide(d);
-    setNavDecision(r.cmd,`[fallback] ${r.reason}`,r.conf);
-    appendLog(`NavAI error: ${e.message} → fallback Rule`,'warn');
-  }
-}
-
-// ── Hook: update compass whenever lidar refreshes ───────────────────
-function onLidarUpdate(){
-  const mode=document.getElementById('nav-dec-mode')?.value||'rule';
-  if(mode==='rule'){
-    const d=getLidarDistances();
-    updateNavCompass(d);
-    // auto update decision in rule mode
-    const r=ruleNavDecide(d);
-    setNavDecision(r.cmd,r.reason,r.conf);
-  }
-}
-
-
-function getRobotContext(){
-  // nearest LIDAR obstacle (from real scan points)
-  const allPts=[...lidarPointsF,...lidarPointsB];
-  let nearestDist=99, nearestDir='none';
-  for(const p of allPts){
-    const d=Math.hypot(p.x-robotX,p.y-robotY);
-    if(d<nearestDist){
-      nearestDist=d;
-      const ang=(Math.atan2(p.y-robotY,p.x-robotX)-robotH)*180/Math.PI;
-      nearestDir=ang>-45&&ang<45?'front':ang>45&&ang<135?'left':ang<-45&&ang>-135?'right':'back';
-    }
-  }
-  const hasLidar=allPts.length>0;
-  const nearStr=hasLidar&&nearestDist<99?nearestDist.toFixed(2)+'m '+nearestDir:'no data';
-
-  return `=== ROBOT ===
-pos: X=${robotX.toFixed(2)} Y=${robotY.toFixed(2)} heading=${(robotH*180/Math.PI).toFixed(1)}deg
-state: ${robotState} | auto:${autoMode} | patrol:${patrolMode} | ROS:${rosConnected}
-waypoints(${waypoints.length}): ${waypoints.slice(0,3).map((w,i)=>`#${i+1}(${w.x.toFixed(1)},${w.y.toFixed(1)})`).join(' ')}
-goalFails: ${consecutiveFailCount}
-
-=== LIDAR ===
-lidar_connected: ${hasLidar}
-front_pts=${lidarPointsF.length} back_pts=${lidarPointsB.length}
-nearest_obstacle: ${nearStr}`;
-}
-
-// ── AI Brain ตัดสินใจอัตโนมัติทุก 10 วินาที ──────────────────────────
-function toggleAutoBrain(){
-  autoBrainOn=document.getElementById('ai-auto').checked;
-  const statusEl=document.getElementById('ai-brain-status');
-  if(autoBrainOn){
-    statusEl.style.display='block';
-    // ล้าง error bubble เก่า
-    document.getElementById('ai-chat').innerHTML='';
-    appendLog('🧠 Auto Brain เปิด — เริ่มใน 10s','ros');
-    runAutoBrain();
-  } else {
-    statusEl.style.display='none';
-    clearTimeout(autoBrainTimer);
-    appendLog('🧠 Auto Brain ปิด','warn');
-  }
-}
-
-function runAutoBrain(){
-  if(!autoBrainOn) return;
-  autoBrainCountdown=30;
-  const cdEl=document.getElementById('ai-countdown');
-  if(cdEl) cdEl.textContent=autoBrainCountdown;
-
-  const tick=setInterval(()=>{
-    autoBrainCountdown--;
-    if(cdEl) cdEl.textContent=autoBrainCountdown;
-    if(autoBrainCountdown<=0) clearInterval(tick);
-  },1000);
-
-  autoBrainTimer=setTimeout(()=>{
-    if(!autoBrainOn) return;
-    ruleBrain();       // pure rule-based — no AI call
-    runAutoBrain();
-  },30000);
-}
-
-// ── Rule-based Brain: no Ollama, no hallucination ────────────────────
-function ruleBrain(){
-  const d=getLidarDistances();
-  updateNavCompass(d);
-
-  // update nav compass
-  const navMode=document.getElementById('nav-dec-mode')?.value||'rule';
-  if(navMode==='rule'){ const r=ruleNavDecide(d); setNavDecision(r.cmd,r.reason,r.conf); }
-
-  const hasLidar=[...lidarPointsF,...lidarPointsB].length>0;
-  const nearFront=hasLidar && d.front<0.8;
-
-  // Rule 1: obstacle ahead → STOP
-  if(nearFront){
-    appendLog(`[Brain] Obstacle ${d.front.toFixed(2)}m ahead → STOP`,'err');
-    addAIBubble(`⚠ Obstacle ${d.front.toFixed(2)}m ahead — stopping.`,'bot');
-    stopRobot(); return;
-  }
-
-  // Rule 2: too many goal fails → STOP + clear waypoints
-  if(consecutiveFailCount>=3){
-    appendLog(`[Brain] goalFails=${consecutiveFailCount} → STOP & clear waypoints`,'err');
-    addAIBubble(`❌ ${consecutiveFailCount} goal fails — stopped. Add new waypoints manually.`,'bot');
-    consecutiveFailCount=0;
-    stopRobot(); return;
-  }
-
-  // Rule 3: patrol running normally → report only
-  if(patrolMode && waypoints.length>0){
-    const wp=waypoints[0];
-    const dist=Math.hypot(robotX-wp.x,robotY-wp.y);
-    document.getElementById('ai-status').textContent='✓ patrol ok';
-    appendLog(`[Brain] Patrol OK — next wp #1 dist=${dist.toFixed(2)}m`,'ros');
-    addAIBubble(`✓ Patrol running. Next: (${wp.x.toFixed(1)},${wp.y.toFixed(1)}) ${dist.toFixed(1)}m away.`,'bot');
-    return;
-  }
-
-  // Rule 4: idle, no waypoints → load preset patrol
-  if(!autoMode && !patrolMode && waypoints.length===0){
-    appendLog('[Brain] Idle, no waypoints → loading preset patrol','warn');
-    addAIBubble('Robot idle, no waypoints — loading preset patrol route.','bot');
-    quickPatrolPlan();
-    togglePatrol();
-    return;
-  }
-
-  // Rule 5: auto walk active
-  if(autoMode && waypoints.length>0){
-    const wp=waypoints[0];
-    const dist=Math.hypot(robotX-wp.x,robotY-wp.y);
-    document.getElementById('ai-status').textContent='✓ auto ok';
-    appendLog(`[Brain] Auto walk OK — next wp dist=${dist.toFixed(2)}m`,'ros');
-    return;
-  }
-
-  document.getElementById('ai-status').textContent='✓ ready';
-}
-
-// callAIBrain is now used only by manual sendAI — not auto brain
-async function callAIBrain(){
-  // kept for compat — ruleBrain() replaces this in auto mode
-  ruleBrain();
-}
-
-// ── execute คำสั่งจาก AI ─────────────────────────────────────────────
-function executeAIDecision(reply, isAuto=false){
-  if(!reply) return;
-  const prefix=isAuto?'[Brain] ':'[AI] ';
-  addAIBubble(reply, 'bot');
-  appendLog(prefix+reply.slice(0,80),'ros');
-
-  // [GOTO:x,y]
-  const gotoMatch=reply.match(/\[GOTO:([-\d.]+),([-\d.]+)\]/);
-  if(gotoMatch){
-    const gx=parseFloat(gotoMatch[1]), gy=parseFloat(gotoMatch[2]);
-    appendLog(`${prefix}Go To (${gx.toFixed(2)},${gy.toFixed(2)})`,'ros');
-    goToPoint(gx,gy);
-  }
-
-  // [WAYPOINTS:x1,y1;x2,y2;...]
-  const wpMatch=reply.match(/\[WAYPOINTS:([^\]]+)\]/);
-  if(wpMatch){
-    const pts=wpMatch[1].split(';').map(s=>{
-      const[x,y]=s.split(',').map(Number);
-      return{x,y,src:'ai'};
-    }).filter(p=>!isNaN(p.x)&&!isNaN(p.y));
-    if(pts.length>0){
-      waypoints=pts;
-      updateWpList();
-      consecutiveFailCount=0;
-      appendLog(`${prefix}วาง ${pts.length} waypoints จาก AI`,'ros');
-      if(!patrolMode) togglePatrol();
-    }
-  }
-
-  // [STOP]
-  if(reply.includes('[STOP]')){
-    appendLog(`${prefix}STOP`,'err');
-    stopRobot();
-  }
-
-  // [PATROL]
-  if(reply.includes('[PATROL]')&&!patrolMode&&waypoints.length>0){
-    appendLog(`${prefix}เริ่ม Patrol`,'ros');
-    togglePatrol();
-  }
-}
-
-// ── ตรวจ goal fail แล้วแจ้ง AI ──────────────────────────────────────
-function reportGoalFail(){
-  consecutiveFailCount++;
-  appendLog(`Goal fail #${consecutiveFailCount}`,'err');
-  if(autoBrainOn){
-    addAIBubble(`⚠ Goal fail #${consecutiveFailCount} — rule brain evaluating...`,'bot','thinking');
-    ruleBrain();  // rule-based only, no AI hallucination
-  }
-}
-
-// ── Manual chat ───────────────────────────────────────────────────────
-function addAIBubble(text, role, extra=''){
-  const chat=document.getElementById('ai-chat');
-  const d=document.createElement('div');
-  d.className=`ai-bubble ${role==='user'?'ai-user':'ai-bot'} ${extra}`;
-  d.textContent=text;
-  chat.appendChild(d);
-  chat.scrollTop=chat.scrollHeight;
-  return d;
-}
-
-async function sendAI(){
-  const input=document.getElementById('ai-input');
-  const userMsg=input.value.trim();
-  if(!userMsg) return;
-  input.value='';
-
-  addAIBubble(userMsg,'user');
-  const thinkBubble=addAIBubble('Thinking...','bot','thinking');
-  document.getElementById('ai-status').textContent='⏳ thinking...';
-
-  const ctx=getRobotContext();
-
-  try{
-    const reply=await callOllama(
-`You are a status reporter for a MiR100 ROS2 robot.
-Answer questions about robot state. Keep answers under 2 sentences.
-Do NOT generate waypoint coordinates or navigation commands.`,
-      `${userMsg}\n\n[Context]\n${ctx}`
-    );
-    thinkBubble.classList.remove('thinking');
-    thinkBubble.textContent=sanitizeAIReply(reply);
-    document.getElementById('ai-status').textContent='✓ ready';
-    // status only — no executeAIDecision to prevent hallucinated nav commands
-  }catch(err){
-    thinkBubble.className='ai-bubble ai-error';
-    thinkBubble.textContent='Error: '+err.message;
-    document.getElementById('ai-status').textContent='❌ error';
-  }
-}
-
-// ── Quick patrol: generate grid waypoints from map bounds — NO AI ────
-function quickPatrolPlan(){
-  clearWaypoints();
-  // generate a coverage grid within map bounds
-  const pts = [
-    {x:-5.5, y:0.5}, {x:-5.5, y:2.5}, {x:-5.5, y:4.5},
-    {x:-2.0, y:0.5}, {x:-2.0, y:2.5}, {x:-2.0, y:4.5},
-    {x: 1.0, y:0.5}, {x: 1.0, y:2.5}, {x: 1.0, y:4.5},
-    {x: 4.0, y:0.5}, {x: 4.0, y:2.5},
-    {x: 7.0, y:0.5}, {x: 9.5, y:0.5}, {x: 9.5, y:3.5},
-    {x: MODEL_OX, y: MODEL_OY},
-  ];
-  pts.forEach(p => waypoints.push({...p, src:'patrol'}));
-  updateWpList();
-  appendLog(`Patrol plan: ${pts.length} waypoints generated from map bounds`,'ok');
-  showToast(`🗺 ${pts.length} patrol waypoints set`);
-  addAIBubble(`Patrol route set: ${pts.length} waypoints covering map bounds X=${XMIN}..${XMAX} Y=${YMIN}..${YMAX}. Use ⟳ Patrol to start.`,'bot');
-}
-
-function aiQuick(prompt){
-  document.getElementById('ai-input').value=prompt;
-  sendAI();
-}
-
-// ════════════════════════════════════════════════════════════════════════
-// PURE PURSUIT AUTO EXECUTE
-// ════════════════════════════════════════════════════════════════════════
-let navAutoOn=false, navAutoTimer=null;
-const NAV_AUTO_HZ=10;
-const PP_LOOKAHEAD=0.5, PP_ARRIVE_R=0.3, PP_GOAL_R=0.4;
-
-function getNavSpeeds(){
-  const lin=parseFloat(document.getElementById('nav-spd-lin')?.value||0.3);
-  const ang=parseFloat(document.getElementById('nav-spd-ang')?.value||0.6);
-  return{lin,ang};
-}
-function cmdToVel(cmd){
-  const{lin,ang}=getNavSpeeds();
-  const map={FORWARD:[lin,0],REVERSE:[-lin,0],TURN_LEFT:[lin*0.4,ang],TURN_RIGHT:[lin*0.4,-ang],
-    ROTATE_LEFT:[0,ang],ROTATE_RIGHT:[0,-ang],STOP:[0,0],STANDBY:[0,0]};
-  return map[cmd]||[0,0];
-}
-function angleDiff(a,b){let d=a-b;while(d>Math.PI)d-=2*Math.PI;while(d<-Math.PI)d+=2*Math.PI;return d;}
-function getLookahead(){
-  if(!nav2Path.length)return null;
-  while(ppPathIdx<nav2Path.length-1&&Math.hypot(nav2Path[ppPathIdx].x-robotX,nav2Path[ppPathIdx].y-robotY)<PP_ARRIVE_R) ppPathIdx++;
-  for(let i=ppPathIdx;i<nav2Path.length;i++) if(Math.hypot(nav2Path[i].x-robotX,nav2Path[i].y-robotY)>=PP_LOOKAHEAD) return nav2Path[i];
-  return nav2Path[nav2Path.length-1];
-}
-function toggleNavAutoExec(){
-  navAutoOn=document.getElementById('nav-auto-exec').checked;
-  const warn=document.getElementById('nav-auto-warn');
-  if(navAutoOn){
-    if(!rosConnected){
-      document.getElementById('nav-auto-exec').checked=false; navAutoOn=false;
-      warn.textContent='⚠ เชื่อมต่อ ROS2 ก่อน'; warn.style.display='block';
-      setTimeout(()=>warn.style.display='none',3000); return;
-    }
-    document.getElementById('nav-auto-status').style.color='var(--green)';
-    document.getElementById('nav-auto-status').textContent='⚡ Auto Execute กำลังทำงาน';
-    appendLog('[NavAuto] เริ่ม','ok'); navAutoLoop();
-  } else {
-    clearTimeout(navAutoTimer); publishCmdVel(0,0);
-    document.getElementById('nav-auto-status').style.color='';
-    document.getElementById('nav-auto-status').textContent='ปิด';
-    appendLog('[NavAuto] หยุด','warn');
-  }
-}
-function navAutoLoop(){
-  if(!navAutoOn)return;
-  const st=document.getElementById('nav-auto-status');
-
-  // ── Safety check ทุก loop — LIDAR ก่อนเสมอ ──
-  const d=getLidarDistances();
-  updateNavCompass(d);
-  const hasLidar=[...lidarPointsF,...lidarPointsB].length>0;
-
-  // Emergency stop: obstacle หน้า < 0.4m
-  if(hasLidar && d.front < 0.4){
-    publishCmdVel(0,0);
-    if(st){st.style.color='var(--danger)';st.textContent=`🛑 obstacle ${d.front.toFixed(2)}m — STOP`;}
-    navAutoTimer=setTimeout(navAutoLoop,1000/NAV_AUTO_HZ);
-    return;
-  }
-
-  // Slow/evade: obstacle หน้า < 0.8m → ใช้ rule-based แทน
-  if(hasLidar && d.front < 0.8){
-    const r=ruleNavDecide(d); setNavDecision(r.cmd,r.reason,r.conf);
-    const[lx,az]=cmdToVel(r.cmd); publishCmdVel(lx,az);
-    if(st){st.style.color='var(--warn)';st.textContent=`⚠ ${d.front.toFixed(2)}m → ${r.cmd}`;}
-    navAutoTimer=setTimeout(navAutoLoop,1000/NAV_AUTO_HZ);
-    return;
-  }
-
-  // ── Pure Pursuit ──
-  if(nav2Path.length>1){
-    const goal=nav2Path[nav2Path.length-1];
-    if(Math.hypot(goal.x-robotX,goal.y-robotY)<PP_GOAL_R){
-      publishCmdVel(0,0); nav2Path=[]; ppPathIdx=0;
-      if(st){st.style.color='var(--green)';st.textContent='✅ ถึง goal';}
-    } else {
-      const lp=getLookahead();
-      if(lp){
-        const{lin,ang}=getNavSpeeds();
-        const tA=Math.atan2(lp.y-robotY,lp.x-robotX);
-        const err=angleDiff(tA,robotH);
-        const az=Math.max(-ang,Math.min(ang,1.8*err));
-        const sideFactor=Math.min(d.left,d.right)<0.5?0.5:1.0;
-        const lx=Math.abs(err)>1.0?0:lin*Math.max(0.1,1-Math.abs(err)/Math.PI)*sideFactor;
-        publishCmdVel(lx,az);
-        if(st){st.style.color='var(--cyan)';st.textContent=`🧭 PP err:${(err*180/Math.PI).toFixed(0)}° lin:${lx.toFixed(2)}`;}
-      }
-    }
-  // ── LIDAR reactive ──
-  } else {
-    const r=ruleNavDecide(d); setNavDecision(r.cmd,r.reason,r.conf);
-    const[lx,az]=cmdToVel(r.cmd); publishCmdVel(lx,az);
-    if(st){st.style.color='var(--accent)';st.textContent=`⚡ LIDAR: ${r.cmd}`;}
-  }
-  navAutoTimer=setTimeout(navAutoLoop,1000/NAV_AUTO_HZ);
-}
-
-// ════════════════════════════════════════════════════════════════════════
-// INIT
-// ════════════════════════════════════════════════════════════════════════
-appendLog('MAPT2 ROS2 Bridge v4 พร้อมใช้งาน ✓','ok');
-appendLog('เชื่อมต่อ rosbridge_websocket เพื่อใช้ ROS2','info');
-appendLog('/map = latched topic → รับครั้งเดียว dot เขียวค้างตลอด','ros');
-appendLog('TF warning "back_laser_link" → เกิดจาก timestamp sync ใน ROS2 ไม่ใช่ bug ของ bridge','warn');
-appendLog('[Space]=fit [C]=clear [S]=stop [P]=patrol [A]=auto','info');
-updateWpList(); fitView();
-</script>
-</body>
-</html>
+  const loopMatch=text.match(/(.{5
