@@ -188,7 +188,7 @@ canvas{position:absolute;top:0;left:0;image-rendering:pixelated;}
   <div class="psec">
     <div class="plbl">เชื่อมต่อ rosbridge</div>
     <div class="conn-row">
-      <input class="conn-input" id="ws-url" value="ws://laptop-tp9h962b-1.tail1bd7aa.ts.net:9090" placeholder="ws://IP:9090">
+      <input class="conn-input" id="ws-url" value="wss://laptop-tp9h962b-1.tail1bd7aa.ts.net" placeholder="ws://IP:9090">
       <button class="btn g" id="btn-connect" onclick="connectROS()">เชื่อม</button>
     </div>
     <div style="font-size:9px;color:var(--cyan);font-family:'Space Mono',monospace;line-height:1.9;margin-top:4px">
@@ -440,7 +440,7 @@ canvas{position:absolute;top:0;left:0;image-rendering:pixelated;}
 
     <!-- Ollama config -->
     <div class="conn-row" style="margin-bottom:4px">
-      <input class="conn-input" id="ollama-url" value="http://klaadmin.tail1bd7aa.ts.net:11434" style="font-size:10px">
+      <input class="conn-input" id="ollama-url" value="https://laptop-tp9h962b-1.tail1bd7aa.ts.net:11434" style="font-size:10px">
     </div>
     <div class="conn-row" style="margin-bottom:8px">
       <input class="conn-input" id="ollama-model" value="qwen2:0.5b" placeholder="model name" style="font-size:10px">
